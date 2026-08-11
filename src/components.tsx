@@ -28,7 +28,7 @@ export function RavenMark({ compact = false }: { compact?: boolean }) {
   const { t } = useI18n()
   return <div className={`brand ${compact ? 'brand--compact' : ''}`}>
     <span className="brand__mark" aria-hidden="true">
-      <RavenGlyph />
+      <img src="/ravencoin-community-explorer-logo.svg" alt="" />
     </span>
     <span className="brand__text"><strong>Ravencoin</strong>{!compact && <small>{t('brand.subtitle')}</small>}</span>
   </div>

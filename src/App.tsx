@@ -19,14 +19,31 @@ function Section({ title, action, children, className = '' }: { title: string; a
   return <section className={`section-card ${className}`}><div className="section-card__heading"><h2>{title}</h2>{action}</div>{children}</section>
 }
 
+function formatDuration(seconds: number | null | undefined, locale: string) {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return '—'
+  const number = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 })
+  if (seconds >= 86_400) return `${number.format(Math.floor(seconds / 86_400))}d ${number.format(Math.floor(seconds % 86_400 / 3_600))}h`
+  if (seconds >= 3_600) return `${number.format(Math.floor(seconds / 3_600))}h ${number.format(Math.floor(seconds % 3_600 / 60))}m`
+  if (seconds >= 60) return `${number.format(Math.floor(seconds / 60))}m`
+  return `${number.format(seconds)}s`
+}
+
 function IndexerProgress({ status }: { status: Status }) {
   const { t, locale } = useI18n()
   if (!status.indexer || status.indexer.progress >= 1) return null
   const percent = new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 2 }).format(status.indexer.progress)
+  const number = (value: number, maximumFractionDigits = 0) => new Intl.NumberFormat(locale, { maximumFractionDigits }).format(value)
   return <section className="indexer-panel">
     <div className="indexer-panel__status"><span><Database size={16} />{t('indexer.syncing')}</span><strong>{percent}</strong></div>
     <div className="indexer-panel__track"><i style={{ width: `${Math.max(.35, status.indexer.progress * 100)}%` }} /></div>
-    <div className="indexer-panel__meta"><span>{t('indexer.indexedTip')} <b>#{new Intl.NumberFormat(locale).format(status.indexer.indexedHeight)}</b></span><span>{t('indexer.networkTip')} <b>#{new Intl.NumberFormat(locale).format(status.chainTip ?? status.indexer.targetHeight)}</b></span><span>{new Intl.NumberFormat(locale).format(status.indexer.indexedTransactions)} {t('indexer.transactions')}</span></div>
+    <div className="indexer-panel__meta">
+      <span>{t('indexer.indexedTip')} <b>#{number(status.indexer.indexedHeight)}</b></span>
+      <span>{t('indexer.networkTip')} <b>#{number(status.chainTip ?? status.indexer.targetHeight)}</b></span>
+      <span>{t('indexer.rate')} <b>{number(status.indexer.blocksPerSecond, 1)} {t('indexer.blocksPerSecond')}</b></span>
+      <span>{t('indexer.eta')} <b>{formatDuration(status.indexer.estimatedSecondsRemaining, locale)}</b></span>
+      <span>{t('indexer.remaining')} <b>{number(status.indexer.blocksRemaining)}</b></span>
+      <span>{t('indexer.updated')} <b>{status.indexer.lastIndexedAt ? formatAge(status.indexer.lastIndexedAt, locale) : '—'}</b></span>
+    </div>
     <p>{t('indexer.notice')}</p>
   </section>
 }
@@ -76,29 +93,39 @@ function MetricTile({ icon, label, value, detail }: { icon: ReactNode; label: st
   return <article className="metric-tile"><span>{icon}</span><div><small>{label}</small><strong>{value}</strong>{detail && <p>{detail}</p>}</div></article>
 }
 
-function StatsChart({ data, valueKey, title, color, locale, formatValue }: { data: StatsHistoryPoint[]; valueKey: keyof Pick<StatsHistoryPoint, 'transactions' | 'activeAddresses' | 'difficulty'>; title: string; color: string; locale: string; formatValue: (value: number) => string }) {
-  const width = 720; const height = 230; const top = 34; const bottom = 30; const side = 18
+function StatsChart({ data, valueKey, title, color, locale, formatValue }: { data: StatsHistoryPoint[]; valueKey: keyof Pick<StatsHistoryPoint, 'blocks' | 'transactions' | 'activeAddresses' | 'difficulty'>; title: string; color: string; locale: string; formatValue: (value: number) => string }) {
+  const [hovered, setHovered] = useState<number | null>(null)
+  const width = 720; const height = 230; const top = 24; const bottom = 30; const left = 48; const right = 18
   const values = data.map((point) => point[valueKey])
   const maximum = Math.max(...values, 1)
   const rawMinimum = Math.min(...values, 0)
   const minimum = valueKey === 'difficulty' && rawMinimum > 0 ? rawMinimum * .97 : 0
   const range = Math.max(maximum - minimum, 1)
-  const x = (index: number) => side + (data.length < 2 ? 0 : index / (data.length - 1)) * (width - side * 2)
+  const x = (index: number) => left + (data.length < 2 ? 0 : index / (data.length - 1)) * (width - left - right)
   const y = (value: number) => top + (1 - (value - minimum) / range) * (height - top - bottom)
   const points = data.map((point, index) => `${x(index)},${y(point[valueKey])}`).join(' ')
   const area = data.length ? `M ${x(0)} ${height - bottom} L ${points.replaceAll(' ', ' L ')} L ${x(data.length - 1)} ${height - bottom} Z` : ''
   const labels = data.length ? [0, Math.floor((data.length - 1) / 2), data.length - 1] : []
   const time = (timestamp: number) => new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit' }).format(timestamp * 1000)
+  const fullTime = (timestamp: number) => new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(timestamp * 1000)
+  const activeIndex = hovered ?? data.length - 1
+  const activePoint = data[activeIndex]
   return <article className="chart-panel">
     <div className="chart-panel__heading"><div><h2>{title}</h2><span>{data.length ? time(data.at(-1)!.timestamp) : '—'}</span></div><strong>{data.length ? formatValue(data.at(-1)![valueKey]) : '—'}</strong></div>
-    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title} preserveAspectRatio="none">
-      <defs><linearGradient id={`fill-${valueKey}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor={color} stopOpacity=".26" /><stop offset="1" stopColor={color} stopOpacity="0" /></linearGradient></defs>
-      {[0, .33, .66, 1].map((step) => <line key={step} x1={side} x2={width - side} y1={top + step * (height - top - bottom)} y2={top + step * (height - top - bottom)} className="chart-gridline" />)}
-      {area && <path d={area} fill={`url(#fill-${valueKey})`} />}
-      {points && <polyline points={points} fill="none" stroke={color} strokeWidth="2.5" vectorEffect="non-scaling-stroke" />}
-      {data.length ? <circle cx={x(data.length - 1)} cy={y(data.at(-1)![valueKey])} r="4" fill={color} /> : null}
-      {labels.map((index) => <text key={index} x={x(index)} y={height - 7} textAnchor={index === 0 ? 'start' : index === data.length - 1 ? 'end' : 'middle'}>{time(data[index].timestamp)}</text>)}
-    </svg>
+    <div className="chart-canvas">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title} preserveAspectRatio="none" tabIndex={0}
+        onPointerMove={(event) => { const bounds = event.currentTarget.getBoundingClientRect(); setHovered(Math.max(0, Math.min(data.length - 1, Math.round((event.clientX - bounds.left) / bounds.width * (data.length - 1))))) }}
+        onPointerLeave={() => setHovered(null)} onFocus={() => data.length && setHovered(data.length - 1)} onBlur={() => setHovered(null)}
+        onKeyDown={(event) => { if (!data.length || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return; event.preventDefault(); setHovered((current) => Math.max(0, Math.min(data.length - 1, (current ?? data.length - 1) + (event.key === 'ArrowLeft' ? -1 : 1)))) }}>
+        <defs><linearGradient id={`fill-${valueKey}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor={color} stopOpacity=".26" /><stop offset="1" stopColor={color} stopOpacity="0" /></linearGradient></defs>
+        {[0, .33, .66, 1].map((step) => <g key={step}><line x1={left} x2={width - right} y1={top + step * (height - top - bottom)} y2={top + step * (height - top - bottom)} className="chart-gridline" /><text x={left - 8} y={top + step * (height - top - bottom) + 3} textAnchor="end">{formatValue(maximum - step * range)}</text></g>)}
+        {area && <path d={area} fill={`url(#fill-${valueKey})`} />}
+        {points && <polyline points={points} fill="none" stroke={color} strokeWidth="2.5" vectorEffect="non-scaling-stroke" />}
+        {activePoint ? <><line className="chart-crosshair" x1={x(activeIndex)} x2={x(activeIndex)} y1={top} y2={height - bottom} /><circle className="chart-active-point" cx={x(activeIndex)} cy={y(activePoint[valueKey])} r="4.5" fill={color} /></> : null}
+        {labels.map((index) => <text key={index} x={x(index)} y={height - 7} textAnchor={index === 0 ? 'start' : index === data.length - 1 ? 'end' : 'middle'}>{time(data[index].timestamp)}</text>)}
+      </svg>
+      {hovered != null && activePoint && <div className="chart-tooltip" style={{ left: `${Math.max(10, Math.min(90, x(activeIndex) / width * 100))}%` }}><span>{fullTime(activePoint.timestamp)}</span><strong>{formatValue(activePoint[valueKey])}</strong></div>}
+    </div>
   </article>
 }
 
@@ -115,25 +142,36 @@ function StatsPage({ status }: { status: Status | null }) {
         <div className="stats-topline">
           <div><Pickaxe /><span>{t('stats.hashrate')}</span><strong>{status ? formatHashrate(status.networkHashrate, locale) : '—'}</strong><small>KAWPOW</small></div>
           <div><Gauge /><span>{t('stats.difficulty')}</span><strong>{status ? number(status.difficulty, 2) : '—'}</strong><small>{t('stats.current')}</small></div>
+          <div><Clock3 /><span>{t('stats.blockTime')}</span><strong>{number(data.averageBlockTimeSeconds, 1)}s</strong><small>{number(data.windowBlocks)} blocks</small></div>
           <div><Activity /><span>{t('stats.windowTransactions')}</span><strong>{number(data.windowTransactions)}</strong><small>{number(data.averageTransactionsPerBlock, 2)} / block</small></div>
           <div><Users /><span>{t('stats.activeAddresses')}</span><strong>{number(data.activeAddresses)}</strong><small>{t('stats.indexed24h')}</small></div>
-          <div><Clock3 /><span>{t('stats.blockTime')}</span><strong>{number(data.averageBlockTimeSeconds, 1)}s</strong><small>{number(data.windowBlocks)} blocks</small></div>
-          <div><RavenCoinMark /><span>{t('stats.mined')}</span><strong>{number(data.minedRvn, 2)} RVN</strong><small>{number(data.totalFees, 4)} RVN fees</small></div>
+          <div><Radio /><span>{t('stats.mempool')}</span><strong>{number(status?.mempoolTransactions ?? 0)}</strong><small>{status ? formatBytes(status.mempoolBytes, locale) : '—'}</small></div>
         </div>
         <div className="charts-grid">
           <StatsChart data={data.history} valueKey="transactions" title={t('stats.transactionsChart')} color="#f28c28" locale={locale} formatValue={(value) => number(value)} />
           <StatsChart data={data.history} valueKey="activeAddresses" title={t('stats.addressesChart')} color="#e14c3d" locale={locale} formatValue={(value) => number(value)} />
+          <StatsChart data={data.history} valueKey="blocks" title={t('stats.blocksChart')} color="#4aa6d8" locale={locale} formatValue={(value) => number(value)} />
           <StatsChart data={data.history} valueKey="difficulty" title={t('stats.difficultyChart')} color="#757ccb" locale={locale} formatValue={(value) => number(value, 2)} />
         </div>
-        <div className="stats-data-section"><h2>{t('stats.chainData')}</h2><div className="stats-data-grid">
+        <div className="stats-data-section"><h2>{t('stats.syncMetrics')}</h2><div className="stats-data-grid">
           <div><span>{t('indexer.networkTip')}</span><strong>#{number(status?.chainTip ?? status?.blocks ?? data.windowEndHeight)}</strong></div>
           <div><span>{t('indexer.indexedTip')}</span><strong>#{number(status?.indexer?.indexedHeight ?? data.windowEndHeight)}</strong></div>
-          <div><span>{t('stats.headers')}</span><strong>#{number(status?.headers ?? 0)}</strong></div>
+          <div><span>{t('indexer.remaining')}</span><strong>{number(status?.indexer?.blocksRemaining ?? 0)}</strong></div>
+          <div><span>{t('indexer.rate')}</span><strong>{number(status?.indexer?.blocksPerSecond ?? 0, 1)} {t('indexer.blocksPerSecond')}</strong></div>
+          <div><span>{t('indexer.eta')}</span><strong>{formatDuration(status?.indexer?.estimatedSecondsRemaining, locale)}</strong></div>
           <div><span>{t('stats.totalTransactions')}</span><strong>{number(data.totalTransactions)}</strong></div>
           <div><span>{t('stats.trackedAddresses')}</span><strong><Link className="text-link" href="/addresses">{number(data.trackedAddresses)}</Link></strong></div>
-          <div><span>{t('stats.circulating')}</span><strong>{number(data.circulatingSupply, 2)} RVN</strong></div>
           <div><span>{t('stats.assetsIndexed')}</span><strong>{number(data.totalAssets)}</strong></div>
+        </div></div>
+        <div className="stats-data-section"><h2>{t('stats.activityMetrics')}</h2><div className="stats-data-grid">
+          <div><span>{t('stats.blocksWindow')}</span><strong>{number(data.windowBlocks)}</strong></div>
+          <div><span>{t('stats.tps')}</span><strong>{number(data.transactionsPerSecond, 4)}</strong></div>
+          <div><span>{t('stats.txPerBlock')}</span><strong>{number(data.averageTransactionsPerBlock, 2)}</strong></div>
+          <div><span>{t('stats.avgBlockSize')}</span><strong>{formatBytes(data.averageBlockSize, locale)}</strong></div>
+          <div><span>{t('stats.mined')}</span><strong>{number(data.minedRvn, 2)} RVN</strong></div>
+          <div><span>{t('stats.fees')}</span><strong>{number(data.totalFees, 4)} RVN</strong></div>
           <div><span>{t('stats.outputVolume')}</span><strong>{number(data.outputVolume, 2)} RVN</strong></div>
+          <div><span>{t('stats.circulating')}</span><strong>{number(data.circulatingSupply, 2)} RVN</strong></div>
         </div></div>
       </section>
       <div className="window-note"><Radio size={15} /><span>{t('stats.windowNote')} <b>#{number(data.windowStartHeight)}</b> — <b>#{number(data.windowEndHeight)}</b>{data.windowEnd ? ` · ${formatDate(data.windowEnd, locale)}` : ''}</span></div>

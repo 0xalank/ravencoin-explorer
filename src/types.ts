@@ -37,6 +37,11 @@ export interface Status {
     indexedAssets: number
     databaseBytes: number
     latencyMs: number
+    blocksRemaining: number
+    blocksPerSecond: number
+    estimatedSecondsRemaining: number | null
+    startedAt: number | null
+    lastIndexedAt: number | null
     lastError?: string | null
     updatedAt?: string | null
   }

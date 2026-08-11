@@ -70,7 +70,13 @@ function mapAsset(row) {
 export async function getIndexedStatus(pool, rpc) {
   const [database, live] = await Promise.all([databaseHealth(pool), getLiveStatus(rpc)])
   const indexedHeight = number(database.best_height) ?? -1
-  const targetHeight = number(database.target_height) ?? live.blocks
+  const targetHeight = live.blocks
+  const indexedBlocks = number(database.indexed_blocks) ?? 0
+  const startedAt = epoch(database.started_at)
+  const lastIndexedAt = epoch(database.indexed_at)
+  const elapsedSeconds = startedAt != null && lastIndexedAt != null ? Math.max(1, lastIndexedAt - startedAt) : 0
+  const blocksPerSecond = elapsedSeconds > 0 ? indexedBlocks / elapsedSeconds : 0
+  const blocksRemaining = Math.max(0, targetHeight - indexedHeight)
   return {
     ...live,
     blocks: Math.max(0, indexedHeight),
@@ -81,11 +87,16 @@ export async function getIndexedStatus(pool, rpc) {
       indexedHeight,
       targetHeight,
       progress: targetHeight > 0 ? Math.max(0, Math.min(1, (indexedHeight + 1) / (targetHeight + 1))) : 0,
-      indexedBlocks: number(database.indexed_blocks) ?? 0,
+      indexedBlocks,
       indexedTransactions: number(database.indexed_transactions) ?? 0,
       indexedAssets: number(database.indexed_assets) ?? 0,
       databaseBytes: number(database.database_bytes) ?? 0,
       latencyMs: database.latencyMs,
+      blocksRemaining,
+      blocksPerSecond,
+      estimatedSecondsRemaining: blocksPerSecond > 0 ? blocksRemaining / blocksPerSecond : null,
+      startedAt,
+      lastIndexedAt,
       lastError: database.last_error,
       updatedAt: database.updated_at,
     },
