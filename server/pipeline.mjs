@@ -3,6 +3,17 @@ import { atomicToDecimal, decimalToAtomic, normalizeOutput } from './indexer-uti
 const STATE_ID = 'ravencoin-mainnet'
 const asJson = (rows) => JSON.stringify(rows)
 
+function indexerWorkMem() {
+  const value = (process.env.INDEXER_WORK_MEM || '256MB').trim()
+  if (!/^\d+(?:kB|MB|GB)$/i.test(value)) throw new Error(`Invalid INDEXER_WORK_MEM value: ${value}`)
+  return value
+}
+
+async function configureRebuildableTransaction(client) {
+  await client.query('SET LOCAL synchronous_commit = off')
+  await client.query("SELECT set_config('work_mem', $1, true)", [indexerWorkMem()])
+}
+
 async function insertJson(client, rows, sql) {
   if (rows.length) await client.query(sql, [asJson(rows)])
 }
@@ -85,7 +96,7 @@ export async function stageRawBlockBatch(pool, blocks, expectedPreviousHash) {
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
-    await client.query('SET LOCAL synchronous_commit = off')
+    await configureRebuildableTransaction(client)
     await insertJson(client, rows.blockRows, `
       INSERT INTO blocks (height, hash, previous_hash, time, size, weight, tx_count, confirmations, difficulty, version, merkle_root, nonce, bits, chainwork)
       SELECT height, hash, previous_hash, time, size, weight, tx_count, confirmations, difficulty, version, merkle_root, nonce, bits, chainwork
@@ -143,11 +154,27 @@ export async function aggregateBlockRange(pool, firstHeight, lastHeight) {
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
-    await client.query('SET LOCAL synchronous_commit = off')
+    await configureRebuildableTransaction(client)
     const { rows: stateRows } = await client.query('SELECT best_height, raw_height FROM sync_state WHERE id = $1', [STATE_ID])
     const state = stateRows[0]
     if (!state || Number(state.best_height) + 1 !== firstHeight) throw new Error(`Aggregation checkpoint mismatch at height ${firstHeight}`)
     if (lastHeight > Number(state.raw_height)) throw new Error(`Cannot aggregate past raw height ${state.raw_height}`)
+
+    // Capture only activity inserted by this transaction. Downstream address rows and
+    // balance deltas can then be derived from this bounded batch instead of scanning
+    // the ever-growing address_activity table by block height.
+    await client.query(`
+      CREATE TEMP TABLE IF NOT EXISTS batch_address_activity (
+        address text NOT NULL,
+        txid char(64) NOT NULL,
+        block_height bigint NOT NULL,
+        tx_index integer NOT NULL,
+        io_index integer NOT NULL,
+        direction text NOT NULL,
+        asset_name text NOT NULL,
+        amount numeric(38, 8) NOT NULL
+      ) ON COMMIT DELETE ROWS
+    `)
 
     // Resolve every input through the composite tx_outputs(txid, vout_index) primary key.
     await client.query(`
@@ -189,34 +216,44 @@ export async function aggregateBlockRange(pool, firstHeight, lastHeight) {
     `, [firstHeight, lastHeight])
 
     await client.query(`
-      INSERT INTO address_activity (address, txid, block_height, tx_index, io_index, direction, asset_name, amount)
-      SELECT a.address, t.txid, t.block_height, t.tx_index, o.vout_index, 'receive', 'RVN', o.value_rvn
-      FROM transactions t JOIN tx_outputs o USING (txid) JOIN output_addresses a USING (txid, vout_index)
-      WHERE t.block_height BETWEEN $1 AND $2 AND o.value_rvn <> 0
-      UNION ALL
-      SELECT a.address, t.txid, t.block_height, t.tx_index, o.vout_index, 'receive', o.asset_name, o.asset_amount
-      FROM transactions t JOIN tx_outputs o USING (txid) JOIN output_addresses a USING (txid, vout_index)
-      WHERE t.block_height BETWEEN $1 AND $2 AND o.asset_name IS NOT NULL AND o.asset_amount <> 0
-      ON CONFLICT (address, txid, direction, io_index, asset_name) DO NOTHING
+      WITH inserted AS (
+        INSERT INTO address_activity (address, txid, block_height, tx_index, io_index, direction, asset_name, amount)
+        SELECT a.address, t.txid, t.block_height, t.tx_index, o.vout_index, 'receive', 'RVN', o.value_rvn
+        FROM transactions t JOIN tx_outputs o USING (txid) JOIN output_addresses a USING (txid, vout_index)
+        WHERE t.block_height BETWEEN $1 AND $2 AND o.value_rvn <> 0
+        UNION ALL
+        SELECT a.address, t.txid, t.block_height, t.tx_index, o.vout_index, 'receive', o.asset_name, o.asset_amount
+        FROM transactions t JOIN tx_outputs o USING (txid) JOIN output_addresses a USING (txid, vout_index)
+        WHERE t.block_height BETWEEN $1 AND $2 AND o.asset_name IS NOT NULL AND o.asset_amount <> 0
+        ON CONFLICT (address, txid, direction, io_index, asset_name) DO NOTHING
+        RETURNING address, txid, block_height, tx_index, io_index, direction, asset_name, amount
+      )
+      INSERT INTO batch_address_activity (address, txid, block_height, tx_index, io_index, direction, asset_name, amount)
+      SELECT address, txid, block_height, tx_index, io_index, direction, asset_name, amount FROM inserted
     `, [firstHeight, lastHeight])
 
     await client.query(`
-      INSERT INTO address_activity (address, txid, block_height, tx_index, io_index, direction, asset_name, amount)
-      SELECT a.address, t.txid, t.block_height, t.tx_index, i.vin_index, 'send', 'RVN', i.value_rvn
-      FROM transactions t JOIN tx_inputs i USING (txid) CROSS JOIN LATERAL unnest(i.addresses) AS a(address)
-      WHERE t.block_height BETWEEN $1 AND $2 AND i.value_rvn <> 0
-      UNION ALL
-      SELECT a.address, t.txid, t.block_height, t.tx_index, i.vin_index, 'send', i.asset_name, i.asset_amount
-      FROM transactions t JOIN tx_inputs i USING (txid) CROSS JOIN LATERAL unnest(i.addresses) AS a(address)
-      WHERE t.block_height BETWEEN $1 AND $2 AND i.asset_name IS NOT NULL AND i.asset_amount <> 0
-      ON CONFLICT (address, txid, direction, io_index, asset_name) DO NOTHING
+      WITH inserted AS (
+        INSERT INTO address_activity (address, txid, block_height, tx_index, io_index, direction, asset_name, amount)
+        SELECT a.address, t.txid, t.block_height, t.tx_index, i.vin_index, 'send', 'RVN', i.value_rvn
+        FROM transactions t JOIN tx_inputs i USING (txid) CROSS JOIN LATERAL unnest(i.addresses) AS a(address)
+        WHERE t.block_height BETWEEN $1 AND $2 AND i.value_rvn <> 0
+        UNION ALL
+        SELECT a.address, t.txid, t.block_height, t.tx_index, i.vin_index, 'send', i.asset_name, i.asset_amount
+        FROM transactions t JOIN tx_inputs i USING (txid) CROSS JOIN LATERAL unnest(i.addresses) AS a(address)
+        WHERE t.block_height BETWEEN $1 AND $2 AND i.asset_name IS NOT NULL AND i.asset_amount <> 0
+        ON CONFLICT (address, txid, direction, io_index, asset_name) DO NOTHING
+        RETURNING address, txid, block_height, tx_index, io_index, direction, asset_name, amount
+      )
+      INSERT INTO batch_address_activity (address, txid, block_height, tx_index, io_index, direction, asset_name, amount)
+      SELECT address, txid, block_height, tx_index, io_index, direction, asset_name, amount FROM inserted
     `, [firstHeight, lastHeight])
 
     await client.query(`
       INSERT INTO address_transactions (address, txid, block_height, tx_index)
-      SELECT DISTINCT address, txid, block_height, tx_index FROM address_activity
-      WHERE block_height BETWEEN $1 AND $2 ON CONFLICT DO NOTHING
-    `, [firstHeight, lastHeight])
+      SELECT DISTINCT address, txid, block_height, tx_index FROM batch_address_activity
+      ON CONFLICT DO NOTHING
+    `)
 
     await client.query(`
       WITH changes AS MATERIALIZED (
@@ -225,7 +262,7 @@ export async function aggregateBlockRange(pool, firstHeight, lastHeight) {
           sum(CASE WHEN direction = 'receive' THEN amount ELSE 0 END) AS received,
           sum(CASE WHEN direction = 'send' THEN amount ELSE 0 END) AS sent,
           max(block_height) AS updated_height
-        FROM address_activity WHERE block_height BETWEEN $1 AND $2 GROUP BY address, asset_name
+        FROM batch_address_activity GROUP BY address, asset_name
       )
       INSERT INTO address_balances (address, asset_name, balance, received, sent, updated_height)
       SELECT address, asset_name, balance, received, sent, updated_height FROM changes
@@ -234,7 +271,7 @@ export async function aggregateBlockRange(pool, firstHeight, lastHeight) {
         received = address_balances.received + EXCLUDED.received,
         sent = address_balances.sent + EXCLUDED.sent,
         updated_height = GREATEST(address_balances.updated_height, EXCLUDED.updated_height)
-    `, [firstHeight, lastHeight])
+    `)
 
     const { rows: assetRows } = await client.query(`
       WITH input_assets AS MATERIALIZED (

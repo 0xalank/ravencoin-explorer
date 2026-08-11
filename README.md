@@ -111,7 +111,12 @@ pnpm start           # serve the production API and compiled UI
 pnpm compose:up      # build and start the production stack
 pnpm compose:logs    # follow explorer and indexer logs
 pnpm compose:down    # stop the stack without deleting PostgreSQL data
+pnpm ops:reconcile   # sample indexed chain, balances, and assets against Core
+pnpm ops:monitor     # health, checkpoint staleness, temp I/O, and disk checks
+pnpm ops:snapshot    # verified custom-format PostgreSQL snapshot
 ```
+
+See [Explorer operations](docs/operations.md) for exact production commands, cron monitoring, RPC reconciliation after asset activation, off-host backup policy, and guarded restore drills.
 
 ## API
 
@@ -139,6 +144,6 @@ Successful responses include `meta.source`: `indexed`, `live`, or `demo`. Produc
 - `INDEXER_FETCH_CONCURRENCY` controls ordered parallel `getblock` RPC batches. Start with `1` locally; the production profile uses `8`.
 - `INDEXER_RAW_LEAD_BLOCKS` bounds how far raw ingestion may run ahead of fully aggregated explorer data.
 - `/api/health` returns `503` when the node/database is unavailable or the indexer is in an error state.
-- Keep regular PostgreSQL backups. The database can always be rebuilt from genesis, but restoration is much faster than a full reindex.
+- Keep verified PostgreSQL snapshots and replicate them off-host. The database can always be rebuilt from genesis, but restoration is much faster than a full reindex.
 - Monitor indexer height versus target height, `last_error`, PostgreSQL disk usage, and API latency.
 - The `explorer-postgres` Docker volume is intentionally preserved by `docker compose down`. Adding `--volumes` deletes the entire explorer index.

@@ -2,7 +2,7 @@ import 'dotenv/config'
 import express from 'express'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { databaseConfigured, databaseHealth, getPool, migrate } from './db.mjs'
+import { assessIndexerHealth, closePool, databaseConfigured, databaseHealth, getPool, migrate } from './db.mjs'
 import {
   DEMO_ADDRESS,
   DEMO_HEIGHT,
@@ -45,6 +45,23 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const projectRoot = path.resolve(__dirname, '..')
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, Number(value) || min))
+
+export function buildHealthPayload(chain, database) {
+  const indexerHealth = database ? assessIndexerHealth(database, { targetHeight: chain.blocks }) : null
+  const healthy = !database || (['syncing', 'ready', 'idle'].includes(database.status) && !indexerHealth.stale)
+  return {
+    healthy,
+    body: {
+      status: healthy ? 'ok' : 'degraded', chain: chain.chain, chainHeight: chain.blocks,
+      database: database ? {
+        status: database.status, indexedHeight: database.best_height, rawHeight: database.raw_height,
+        targetHeight: chain.blocks, latencyMs: database.latencyMs, stale: indexerHealth.stale,
+        checkpointAt: indexerHealth.checkpointAt, checkpointAgeSeconds: indexerHealth.checkpointAgeSeconds,
+        staleAfterSeconds: indexerHealth.staleAfterSeconds, active: indexerHealth.indexerActive,
+      } : null,
+    },
+  }
+}
 
 export function createApp(options = {}) {
   const app = express()
@@ -120,11 +137,8 @@ export function createApp(options = {}) {
         rpc.call('getblockchaininfo'),
         useDatabase ? databaseHealth(pool) : Promise.resolve(null),
       ])
-      const healthy = !database || ['syncing', 'ready', 'idle'].includes(database.status)
-      response.status(healthy ? 200 : 503).json({
-        status: healthy ? 'ok' : 'degraded', chain: chain.chain, chainHeight: chain.blocks,
-        database: database ? { status: database.status, indexedHeight: database.best_height, rawHeight: database.raw_height, targetHeight: chain.blocks, latencyMs: database.latencyMs } : null,
-      })
+      const health = buildHealthPayload(chain, database)
+      response.status(health.healthy ? 200 : 503).json(health.body)
     } catch (error) {
       response.status(503).json({ status: 'unavailable', error: error.message })
     }
@@ -263,4 +277,8 @@ async function start() {
   })
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) start().catch((error) => { console.error('Explorer failed to start:', error); process.exitCode = 1 })
+if (process.argv[1] === fileURLToPath(import.meta.url)) start().catch(async (error) => {
+  console.error('Explorer failed to start:', error)
+  process.exitCode = 1
+  await closePool().catch(() => {})
+})

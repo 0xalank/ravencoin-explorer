@@ -12,6 +12,12 @@
     "compose:up": "docker compose up --build -d",
     "compose:down": "docker compose down",
     "compose:logs": "docker compose logs -f explorer indexer",
+    "ops:reconcile": "node scripts/ops/reconcile-rpc.mjs",
+    "ops:monitor": "node scripts/ops/monitor.mjs",
+    "ops:snapshot": "bash scripts/ops/postgres-snapshot.sh",
+    "ops:snapshot:verify": "bash scripts/ops/verify-postgres-snapshot.sh",
+    "ops:snapshot:restore": "bash scripts/ops/restore-postgres-snapshot.sh",
+    "ops:check": "node --check scripts/ops/reconcile-rpc.mjs && node --check scripts/ops/monitor.mjs && node --check scripts/ops/redact-database-url.mjs && bash -n scripts/ops/postgres-snapshot.sh scripts/ops/verify-postgres-snapshot.sh scripts/ops/restore-postgres-snapshot.sh",
     "test": "node --test server/*.test.mjs",
     "check": "pnpm test && pnpm build"
   },

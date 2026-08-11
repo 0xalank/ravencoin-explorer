@@ -1,4 +1,4 @@
-import { databaseHealth } from './db.mjs'
+import { assessIndexerHealth, databaseHealth } from './db.mjs'
 import { getLiveStatus } from './rpc.mjs'
 
 const number = (value) => value == null ? null : Number(value)
@@ -69,6 +69,7 @@ function mapAsset(row) {
 
 export async function getIndexedStatus(pool, rpc) {
   const [database, live] = await Promise.all([databaseHealth(pool), getLiveStatus(rpc)])
+  const health = assessIndexerHealth(database, { targetHeight: live.blocks })
   const indexedHeight = number(database.best_height) ?? -1
   const targetHeight = live.blocks
   const indexedBlocks = number(database.indexed_blocks) ?? 0
@@ -101,6 +102,11 @@ export async function getIndexedStatus(pool, rpc) {
       lastIndexedAt,
       lastError: database.last_error,
       updatedAt: database.updated_at,
+      stale: health.stale,
+      checkpointAt: health.checkpointAt,
+      checkpointAgeSeconds: health.checkpointAgeSeconds,
+      staleAfterSeconds: health.staleAfterSeconds,
+      active: health.indexerActive,
     },
   }
 }

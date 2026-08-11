@@ -11,7 +11,16 @@ const FETCH_CONCURRENCY = Math.min(16, Math.max(1, Number(process.env.INDEXER_FE
 const RAW_LEAD_BLOCKS = Math.max(BATCH_SIZE, Number(process.env.INDEXER_RAW_LEAD_BLOCKS) || BATCH_SIZE * 4)
 const POLL_MS = Math.max(1_000, Number(process.env.INDEXER_POLL_MS) || 5_000)
 const ASSET_PAGE_SIZE = Math.min(5_000, Math.max(100, Number(process.env.INDEXER_ASSET_PAGE_SIZE) || 1_000))
-const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
+const sleep = (milliseconds, signal) => new Promise((resolve) => {
+  if (signal?.aborted) return resolve()
+  const timer = setTimeout(done, milliseconds)
+  function done() {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', done)
+    resolve()
+  }
+  signal?.addEventListener('abort', done, { once: true })
+})
 
 const asJson = (rows) => JSON.stringify(rows)
 const outputKey = (txid, vout) => `${txid}:${vout}`
@@ -396,15 +405,13 @@ async function bootstrapAssets(pool, rpc) {
   }
 }
 
-async function findCommonAncestor(client, rpc, startingHeight) {
+export async function findCommonAncestor(client, rpc, startingHeight) {
   let height = startingHeight
   while (height >= 0) {
     const { rows } = await client.query('SELECT hash FROM blocks WHERE height = $1', [height])
     if (!rows[0]) { height -= 1; continue }
-    try {
-      const canonicalHash = await rpc.call('getblockhash', [height])
-      if (canonicalHash === rows[0].hash.trim()) return height
-    } catch {}
+    const canonicalHash = await rpc.call('getblockhash', [height])
+    if (canonicalHash === rows[0].hash.trim()) return height
     height -= 1
   }
   return -1
@@ -419,7 +426,11 @@ export async function rollbackTo(pool, rpc, ancestorHeight) {
     const state = await getState(client)
     const processedHeight = Math.min(Number(state.best_height), ancestorHeight)
     await setState(client, { status: 'reorg' })
-    const addresses = (await client.query('SELECT DISTINCT address FROM address_activity WHERE block_height > $1', [ancestorHeight])).rows.map((row) => row.address)
+    // Use the block-height-first transaction window index to discover affected
+    // addresses. address_activity is intentionally indexed by address instead,
+    // so scanning it by height would make deep reorg recovery degrade with the
+    // full history size.
+    const addresses = (await client.query('SELECT DISTINCT address FROM address_transactions WHERE block_height > $1', [ancestorHeight])).rows.map((row) => row.address)
     affectedAssets = (await client.query("SELECT DISTINCT asset_name FROM asset_transfers WHERE block_height > $1 AND transfer_type IN ('issue', 'reissue')", [ancestorHeight])).rows.map((row) => row.asset_name)
     await client.query('DELETE FROM blocks WHERE height > $1', [ancestorHeight])
     if (affectedAssets.length) {
@@ -456,28 +467,56 @@ export async function rollbackTo(pool, rpc, ancestorHeight) {
 }
 
 export class RavencoinIndexer {
-  constructor({ pool = getPool(), rpc = new RavenRpc() } = {}) {
+  constructor({
+    pool = getPool(), rpc = new RavenRpc(), fetchBlocks = fetchBlockBatch,
+    stageBlocks = stageRawBlockBatch, aggregateBlocks = aggregateBlockRange,
+    drainAssets = drainAssetQueue,
+  } = {}) {
     this.pool = pool
     this.rpc = rpc
+    this.fetchBlocks = fetchBlocks
+    this.stageBlocks = stageBlocks
+    this.aggregateBlocks = aggregateBlocks
+    this.drainAssets = drainAssets
     this.stopping = false
+    this.cycleController = null
   }
 
-  stop() { this.stopping = true }
+  stop() {
+    this.stopping = true
+    this.cycleController?.abort()
+  }
 
   async syncOnce() {
+    if (this.stopping) return
+    const controller = new AbortController()
+    this.cycleController = controller
+    try { await this.syncCycle(controller) }
+    finally {
+      if (this.cycleController === controller) this.cycleController = null
+    }
+  }
+
+  async syncCycle(controller) {
+    const { signal } = controller
     const chain = await this.rpc.call('getblockchaininfo')
+    if (this.stopping || signal.aborted) return
     if (chain.chain !== 'main' && String(process.env.ALLOW_NON_MAINNET).toLowerCase() !== 'true') throw new Error(`Refusing to index unexpected chain: ${chain.chain}`)
     let state = await getState(this.pool)
+    if (this.stopping || signal.aborted) return
     const rawHeight = Number(state.raw_height ?? state.best_height)
     const rawHash = state.raw_hash?.trim() ?? state.best_hash?.trim()
     if (rawHeight >= 0) {
-      let canonical
-      try { canonical = await this.rpc.call('getblockhash', [rawHeight]) } catch {}
-      if (!canonical || canonical !== rawHash) {
+      const rawTipAboveChain = rawHeight > Number(chain.blocks)
+      const canonical = rawTipAboveChain ? null : await this.rpc.call('getblockhash', [rawHeight])
+      if (this.stopping || signal.aborted) return
+      if (rawTipAboveChain || canonical !== rawHash) {
         const ancestor = await findCommonAncestor(this.pool, this.rpc, Math.min(rawHeight, chain.blocks))
+        if (this.stopping || signal.aborted) return
         console.warn(`Reorg detected. Rolling back to height ${ancestor}.`)
         await rollbackTo(this.pool, this.rpc, ancestor)
         state = await getState(this.pool)
+        if (this.stopping || signal.aborted) return
       }
     }
     await setState(this.pool, {
@@ -486,56 +525,83 @@ export class RavencoinIndexer {
       raw_hash: state.raw_hash == null || Number(state.raw_height) < Number(state.best_height) ? state.best_hash : state.raw_hash,
     })
 
+    let pipelineWorkers = 2
     let pipelineDone = false
+    let rootError = null
+    const failCycle = (error) => {
+      if (!rootError) rootError = error
+      controller.abort(rootError)
+    }
+    const runPipelineWorker = async (worker) => {
+      try { await worker() }
+      catch (error) {
+        if (!this.stopping) failCycle(error)
+        else controller.abort()
+        throw error
+      } finally {
+        pipelineWorkers -= 1
+        if (pipelineWorkers === 0) pipelineDone = true
+      }
+    }
     const produce = async () => {
-      while (!this.stopping) {
+      while (!this.stopping && !signal.aborted) {
         const current = await getState(this.pool)
+        if (signal.aborted) return
         const stagedHeight = Number(current.raw_height)
         const processedHeight = Number(current.best_height)
         if (stagedHeight >= chain.blocks) return
-        if (stagedHeight - processedHeight >= RAW_LEAD_BLOCKS) { await sleep(100); continue }
+        if (stagedHeight - processedHeight >= RAW_LEAD_BLOCKS) { await sleep(100, signal); continue }
         const first = stagedHeight + 1
         const last = Math.min(chain.blocks, first + BATCH_SIZE - 1, processedHeight + RAW_LEAD_BLOCKS)
-        const blocks = await fetchBlockBatch(this.rpc, first, last)
-        await stageRawBlockBatch(this.pool, blocks, current.raw_hash?.trim() ?? current.best_hash?.trim() ?? null)
+        const blocks = await this.fetchBlocks(this.rpc, first, last)
+        if (signal.aborted) return
+        await this.stageBlocks(this.pool, blocks, current.raw_hash?.trim() ?? current.best_hash?.trim() ?? null)
         if (last % 5_000 < BATCH_SIZE) console.log(`Raw block data ${last.toLocaleString()} / ${chain.blocks.toLocaleString()}`)
       }
     }
     const aggregate = async () => {
-      while (!this.stopping) {
+      while (!this.stopping && !signal.aborted) {
         const current = await getState(this.pool)
+        if (signal.aborted) return
         const processedHeight = Number(current.best_height)
         if (processedHeight >= chain.blocks) return
         const stagedHeight = Number(current.raw_height)
-        if (stagedHeight <= processedHeight) { await sleep(100); continue }
+        if (stagedHeight <= processedHeight) { await sleep(100, signal); continue }
         const first = processedHeight + 1
         const last = Math.min(stagedHeight, first + BATCH_SIZE - 1, chain.blocks)
-        await aggregateBlockRange(this.pool, first, last)
+        await this.aggregateBlocks(this.pool, first, last)
         if (last % 1_000 < BATCH_SIZE) console.log(`Indexed block ${last.toLocaleString()} / ${chain.blocks.toLocaleString()}`)
       }
     }
     const assets = async () => {
-      while (!this.stopping && !pipelineDone) {
+      while (!this.stopping && !signal.aborted && !pipelineDone) {
         try {
           const current = await getState(this.pool)
-          const worked = await drainAssetQueue(this.pool, this.rpc, current.best_height)
-          if (!worked) await sleep(500)
+          if (signal.aborted) return
+          const worked = await this.drainAssets(this.pool, this.rpc, current.best_height)
+          if (!worked) await sleep(500, signal)
         } catch (error) {
           console.warn('Deferred asset metadata refresh:', error.message)
-          await sleep(1_000)
+          await sleep(1_000, signal)
         }
       }
-      while (!this.stopping && await drainAssetQueue(this.pool, this.rpc, chain.blocks).catch(() => false)) {}
+      while (!this.stopping && !signal.aborted && await this.drainAssets(this.pool, this.rpc, chain.blocks).catch(() => false)) {}
     }
-    const pipeline = Promise.all([produce(), aggregate()]).finally(() => { pipelineDone = true })
-    await Promise.all([pipeline, assets()])
-    if (!this.stopping) await setState(this.pool, { status: 'ready', target_height: chain.blocks, indexed_at: new Date(), last_error: null })
+    const results = await Promise.allSettled([
+      runPipelineWorker(produce),
+      runPipelineWorker(aggregate),
+      assets(),
+    ])
+    if (!rootError && !this.stopping) rootError = results.find((result) => result.status === 'rejected')?.reason ?? null
+    if (rootError) throw rootError
+    if (!this.stopping && !signal.aborted) await setState(this.pool, { status: 'ready', target_height: chain.blocks, indexed_at: new Date(), last_error: null })
   }
 
   async run() {
     while (!this.stopping) {
       try { await this.syncOnce() }
       catch (error) {
+        if (this.stopping) break
         console.error('Indexer cycle failed:', error)
         await setState(this.pool, { status: 'error', last_error: String(error.message ?? error).slice(0, 2_000) }).catch(() => {})
       }
@@ -544,22 +610,38 @@ export class RavencoinIndexer {
   }
 }
 
-async function main() {
-  await migrate()
-  const pool = getPool()
-  const lockClient = await pool.connect()
-  const { rows } = await lockClient.query('SELECT pg_try_advisory_lock($1) AS locked', [INDEXER_LOCK])
-  if (!rows[0].locked) throw new Error('Another Ravencoin indexer already holds the database lock.')
-  const indexer = new RavencoinIndexer({ pool })
-  const stop = () => indexer.stop()
-  process.on('SIGINT', stop)
-  process.on('SIGTERM', stop)
+export async function withIndexerLock(pool, work) {
+  const client = await pool.connect()
+  let locked = false
   try {
-    await bootstrapAssets(pool, indexer.rpc).catch((error) => console.warn('Asset directory bootstrap deferred:', error.message))
-    await indexer.run()
+    const { rows } = await client.query('SELECT pg_try_advisory_lock($1) AS locked', [INDEXER_LOCK])
+    locked = Boolean(rows[0]?.locked)
+    if (!locked) throw new Error('Another Ravencoin indexer already holds the database lock.')
+    return await work(client)
   } finally {
-    await lockClient.query('SELECT pg_advisory_unlock($1)', [INDEXER_LOCK]).catch(() => {})
-    lockClient.release()
+    if (locked) await client.query('SELECT pg_advisory_unlock($1)', [INDEXER_LOCK]).catch(() => {})
+    client.release()
+  }
+}
+
+async function main() {
+  const pool = getPool()
+  try {
+    await migrate(pool)
+    await withIndexerLock(pool, async () => {
+      const indexer = new RavencoinIndexer({ pool })
+      const stop = () => indexer.stop()
+      process.on('SIGINT', stop)
+      process.on('SIGTERM', stop)
+      try {
+        await bootstrapAssets(pool, indexer.rpc).catch((error) => console.warn('Asset directory bootstrap deferred:', error.message))
+        await indexer.run()
+      } finally {
+        process.off('SIGINT', stop)
+        process.off('SIGTERM', stop)
+      }
+    })
+  } finally {
     await closePool()
   }
 }

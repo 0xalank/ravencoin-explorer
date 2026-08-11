@@ -9,6 +9,7 @@ x-app-environment: &app-environment
   RAVEN_RPC_TIMEOUT_MS: ${RAVEN_RPC_TIMEOUT_MS:-30000}
   EXPLORER_DATA_SOURCE: postgres
   EXPLORER_DEMO_MODE: "false"
+  INDEXER_STALE_SECONDS: ${INDEXER_STALE_SECONDS:-600}
 
 services:
   ravend:
@@ -82,6 +83,9 @@ services:
     build: .
     image: dominant-ravencoin-explorer:${EXPLORER_IMAGE_TAG:-latest}
     restart: unless-stopped
+    # Exceed the 120s indexer SQL timeout so cooperative shutdown can finish
+    # cleanup and release the singleton advisory lock before Docker escalates.
+    stop_grace_period: 3m
     command: ["node", "server/indexer.mjs"]
     environment:
       <<: *app-environment
@@ -89,6 +93,7 @@ services:
       INDEXER_BATCH_SIZE: ${INDEXER_BATCH_SIZE:-500}
       INDEXER_FETCH_CONCURRENCY: ${INDEXER_FETCH_CONCURRENCY:-8}
       INDEXER_RAW_LEAD_BLOCKS: ${INDEXER_RAW_LEAD_BLOCKS:-5000}
+      INDEXER_WORK_MEM: ${INDEXER_WORK_MEM:-256MB}
       DATABASE_STATEMENT_TIMEOUT_MS: ${INDEXER_DATABASE_STATEMENT_TIMEOUT_MS:-120000}
       INDEXER_POLL_MS: ${INDEXER_POLL_MS:-1000}
       INDEXER_ASSET_PAGE_SIZE: ${INDEXER_ASSET_PAGE_SIZE:-5000}
@@ -112,6 +117,21 @@ services:
       PORT: 3000
       API_RATE_LIMIT_PER_MINUTE: ${API_RATE_LIMIT_PER_MINUTE:-300}
       TRUST_PROXY: ${TRUST_PROXY:-false}
+      MONITOR_HEALTH_URL: ${MONITOR_HEALTH_URL:-http://127.0.0.1:3000/api/health}
+      MONITOR_DISK_PATH: ${MONITOR_DISK_PATH:-/}
+      MONITOR_MIN_DISK_FREE_BYTES: ${MONITOR_MIN_DISK_FREE_BYTES:-107374182400}
+      MONITOR_MIN_DISK_FREE_PERCENT: ${MONITOR_MIN_DISK_FREE_PERCENT:-10}
+      MONITOR_MAX_TEMP_BYTES_PER_INTERVAL: ${MONITOR_MAX_TEMP_BYTES_PER_INTERVAL:-1073741824}
+      MONITOR_STATE_FILE: ${MONITOR_STATE_FILE:-/app/ops-state/monitor.json}
+      MONITOR_REQUIRE_DATABASE: ${MONITOR_REQUIRE_DATABASE:-true}
+      RECONCILE_BLOCK_SAMPLES: ${RECONCILE_BLOCK_SAMPLES:-8}
+      RECONCILE_BALANCE_SAMPLES: ${RECONCILE_BALANCE_SAMPLES:-6}
+      RECONCILE_TRANSFER_SAMPLES: ${RECONCILE_TRANSFER_SAMPLES:-16}
+      RECONCILE_RPC_BATCH_SIZE: ${RECONCILE_RPC_BATCH_SIZE:-4}
+      RECONCILE_RPC_TIMEOUT_MS: ${RECONCILE_RPC_TIMEOUT_MS:-120000}
+      RECONCILE_DATABASE_TIMEOUT_MS: ${RECONCILE_DATABASE_TIMEOUT_MS:-120000}
+      RECONCILE_REQUIRE_ASSET_SAMPLES: ${RECONCILE_REQUIRE_ASSET_SAMPLES:-true}
+      RECONCILE_ASSET_GRACE_BLOCKS: ${RECONCILE_ASSET_GRACE_BLOCKS:-1440}
     depends_on:
       ravend:
         condition: service_healthy
@@ -119,6 +139,8 @@ services:
         condition: service_healthy
       indexer:
         condition: service_started
+    volumes:
+      - explorer-ops-state:/app/ops-state
     ports:
       - "0.0.0.0:${EXPLORER_PORT:-3102}:3000"
     healthcheck:
@@ -127,3 +149,6 @@ services:
       timeout: 8s
       retries: 10
       start_period: 1m
+
+volumes:
+  explorer-ops-state:
