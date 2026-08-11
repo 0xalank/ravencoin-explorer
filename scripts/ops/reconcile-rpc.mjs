@@ -395,13 +395,15 @@ async function main() {
     const transferSamples = await loadTransferSamples(client, bestHeight, options.transferSamples)
     const blocks = await loadCanonicalBlocks(client, rpc, bestHeight, transferSamples, options.blockSamples, options.rpcBatchSize)
     const facts = collectRpcFacts(blocks)
-    const mismatchGroups = await Promise.all([
-      compareRawOutputs(client, facts.outputs),
-      compareReceiveActivity(client, facts.receiveEvents),
-      compareAssetTransfers(client, facts.transfers),
-      compareCachedBalances(client, facts.receiveEvents, bestHeight, options.balanceSamples),
-    ])
-    const mismatches = mismatchGroups.flat()
+    // A PostgreSQL client executes one statement at a time. Keep every check on
+    // this single repeatable-read snapshot without queueing concurrent
+    // client.query calls (deprecated by node-postgres and removed in pg 9).
+    const mismatches = [
+      ...await compareRawOutputs(client, facts.outputs),
+      ...await compareReceiveActivity(client, facts.receiveEvents),
+      ...await compareAssetTransfers(client, facts.transfers),
+      ...await compareCachedBalances(client, facts.receiveEvents, bestHeight, options.balanceSamples),
+    ]
     for (const sample of transferSamples) {
       if (!facts.transfers.some((item) => transferKey(item) === transferKey({
         txid: sample.txid, voutIndex: sample.vout_index, assetName: sample.asset_name,
