@@ -6,6 +6,7 @@ import { atomicToDecimal, BalanceAccumulator, decimalToAtomic, normalizeOutput }
 const STATE_ID = 'ravencoin-mainnet'
 const INDEXER_LOCK = 1_884_202_019
 const BATCH_SIZE = Math.min(100, Math.max(1, Number(process.env.INDEXER_BATCH_SIZE) || 20))
+const FETCH_CONCURRENCY = Math.min(8, Math.max(1, Number(process.env.INDEXER_FETCH_CONCURRENCY) || 1))
 const POLL_MS = Math.max(1_000, Number(process.env.INDEXER_POLL_MS) || 5_000)
 const ASSET_PAGE_SIZE = Math.min(5_000, Math.max(100, Number(process.env.INDEXER_ASSET_PAGE_SIZE) || 1_000))
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
@@ -33,8 +34,12 @@ async function setState(client, fields) {
 async function fetchBlockBatch(rpc, firstHeight, lastHeight) {
   const heights = Array.from({ length: lastHeight - firstHeight + 1 }, (_, index) => firstHeight + index)
   const hashes = await rpc.batch(heights.map((height) => ({ method: 'getblockhash', params: [height] })))
-  const blocks = await rpc.batch(hashes.map((hash) => ({ method: 'getblock', params: [hash, 2] })))
-  return blocks
+  const calls = hashes.map((hash) => ({ method: 'getblock', params: [hash, 2] }))
+  if (FETCH_CONCURRENCY === 1 || calls.length === 1) return rpc.batch(calls)
+  const chunkSize = Math.ceil(calls.length / FETCH_CONCURRENCY)
+  const chunks = []
+  for (let offset = 0; offset < calls.length; offset += chunkSize) chunks.push(calls.slice(offset, offset + chunkSize))
+  return (await Promise.all(chunks.map((chunk) => rpc.batch(chunk)))).flat()
 }
 
 function collectBlockRows(blocks) {

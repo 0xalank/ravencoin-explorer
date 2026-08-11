@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { ArrowRight, Check, ChevronDown, Clipboard, Database, ExternalLink, Globe2, Menu, Search, X } from 'lucide-react'
+import { ArrowRight, Check, ChevronDown, Clipboard, Database, ExternalLink, Globe2, Menu, Moon, Search, Sun, X } from 'lucide-react'
 import { api } from './lib/api'
 import { languages, useI18n } from './lib/i18n'
 import { Link, navigate } from './lib/router'
@@ -20,11 +20,15 @@ export function RavenGlyph({ className = '' }: { className?: string }) {
   </svg>
 }
 
+export function RavenCoinMark({ className = '' }: { className?: string }) {
+  return <span className={`raven-coin-mark ${className}`} aria-label="RVN"><RavenGlyph /></span>
+}
+
 export function RavenMark({ compact = false }: { compact?: boolean }) {
   const { t } = useI18n()
   return <div className={`brand ${compact ? 'brand--compact' : ''}`}>
     <span className="brand__mark" aria-hidden="true">
-      <RavenGlyph />
+      <img src="/ravencoin-community-explorer-mark.svg" alt="" />
     </span>
     <span className="brand__text"><strong>Ravencoin</strong>{!compact && <small>{t('brand.subtitle')}</small>}</span>
   </div>
@@ -42,17 +46,25 @@ export function Header({ meta }: { meta: ApiMeta | null }) {
   const { t, locale, setLocale } = useI18n()
   const [menuOpen, setMenuOpen] = useState(false)
   const [languageOpen, setLanguageOpen] = useState(false)
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    const saved = localStorage.getItem('rvn-explorer-theme')
+    if (saved === 'dark' || saved === 'light') return saved
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+  })
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    document.documentElement.style.colorScheme = theme
+    localStorage.setItem('rvn-explorer-theme', theme)
+  }, [theme])
   const activeLanguage = languages.find((language) => language.code === locale) ?? languages[0]
   const path = window.location.pathname
   const nav = [
-    ['/', 'nav.home'], ['/blocks', 'nav.blocks'], ['/assets', 'nav.assets'], ['/about', 'nav.about'],
+    ['/', 'nav.home'], ['/blocks', 'nav.blocks'], ['/addresses', 'nav.addresses'], ['/assets', 'nav.assets'], ['/stats', 'nav.stats'],
+    ['/markets', 'nav.markets'], ['/community', 'nav.community'], ['/about', 'nav.about'],
   ]
   return <header className="site-header">
     <div className="shell header__inner">
       <Link href="/" className="header__brand" aria-label="Raven Scout home"><RavenMark /></Link>
-      <nav className={`nav ${menuOpen ? 'nav--open' : ''}`} aria-label="Primary navigation">
-        {nav.map(([href, key]) => <Link key={href} href={href} className={path === href ? 'active' : ''} onClick={() => setMenuOpen(false)}>{t(key)}</Link>)}
-      </nav>
       <div className="header__actions">
         <a className="quai-nav-link" href="https://soap.qu.ai" target="_blank" rel="noreferrer" title={t('merge.visit')}>
           <QuaiMark /><span>{t('merge.nav')}</span><ExternalLink size={12} />
@@ -60,6 +72,9 @@ export function Header({ meta }: { meta: ApiMeta | null }) {
         <span className={`network-pill ${!meta ? 'network-pill--loading' : meta.source === 'demo' ? 'network-pill--demo' : meta.source === 'indexed' ? 'network-pill--indexed' : ''}`}>
           <i /> <span>{!meta ? t('common.loading') : meta.source === 'demo' ? t('status.demo') : meta.source === 'indexed' ? t('status.indexed') : t('status.live')}</span>
         </span>
+        <button className="theme-button" onClick={() => setTheme((value) => value === 'dark' ? 'light' : 'dark')} aria-label={theme === 'dark' ? t('theme.light') : t('theme.dark')} title={theme === 'dark' ? t('theme.light') : t('theme.dark')}>
+          {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+        </button>
         <div className="language">
           <button className="language__button" onClick={() => setLanguageOpen((open) => !open)} aria-expanded={languageOpen} aria-label="Choose language">
             <Globe2 size={16} /><span>{activeLanguage.short}</span><ChevronDown size={14} />
@@ -71,6 +86,14 @@ export function Header({ meta }: { meta: ApiMeta | null }) {
           </div>}
         </div>
         <button className="menu-button" onClick={() => setMenuOpen((open) => !open)} aria-label="Toggle navigation">{menuOpen ? <X /> : <Menu />}</button>
+      </div>
+    </div>
+    <div className="header__nav-row">
+      <div className="shell header__nav-inner">
+        <nav className={`nav ${menuOpen ? 'nav--open' : ''}`} aria-label="Primary navigation">
+          {nav.map(([href, key]) => <Link key={href} href={href} className={path === href || (href !== '/' && path.startsWith(`${href}/`)) ? 'active' : ''} onClick={() => setMenuOpen(false)}>{t(key)}</Link>)}
+        </nav>
+        <div className="protocol-strip" aria-label="Ravencoin protocol summary"><span>KAWPOW</span><i />60s BLOCKS<i />21B MAX SUPPLY<i />ASSET LAYER</div>
       </div>
     </div>
   </header>
@@ -216,7 +239,7 @@ export function BlockTable({ blocks }: { blocks: Block[] }) {
 export function TransactionRows({ transactions }: { transactions: Transaction[] }) {
   const { t, locale } = useI18n()
   return <div className="transaction-list">{transactions.map((tx) => <article className="transaction-row" key={tx.txid}>
-    <div className="transaction-row__main"><span className="transaction-icon">TX</span><div><Link className="mono-link truncate" href={`/tx/${tx.txid}`}>{tx.txid}</Link><small>{tx.time ? formatAge(tx.time, locale) : t('common.unknown')}</small></div></div>
+    <div className="transaction-row__main"><RavenCoinMark className="transaction-icon" /><div><Link className="mono-link truncate" href={`/tx/${tx.txid}`}>{tx.txid}</Link><small>{tx.time ? formatAge(tx.time, locale) : t('common.unknown')}</small></div></div>
     <div className="transaction-row__stats"><span><small>{t('tx.total')}</small><strong>{formatAmount(tx.totalOutput, locale)} RVN</strong></span><span><small>{t('field.confirmations')}</small><strong>{tx.confirmations ?? '—'}</strong></span></div>
   </article>)}</div>
 }

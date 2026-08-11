@@ -135,7 +135,8 @@ Successful responses include `meta.source`: `indexed`, `live`, or `demo`. Produc
 ## Operations
 
 - The indexer resumes from `sync_state.best_height` after restarts.
-- `INDEXER_BATCH_SIZE` controls backfill throughput and transaction size. Start with `20`; increase only after observing node and database memory.
+- `INDEXER_BATCH_SIZE` controls backfill transaction size. Start with `20`; increase only after observing node and database memory.
+- `INDEXER_FETCH_CONCURRENCY` controls ordered parallel `getblock` RPC batches. Start with `1` locally; `4` is appropriate when Ravencoin Core has spare CPU and RPC workers.
 - `/api/health` returns `503` when the node/database is unavailable or the indexer is in an error state.
 - Keep regular PostgreSQL backups. The database can always be rebuilt from genesis, but restoration is much faster than a full reindex.
 - Monitor indexer height versus target height, `last_error`, PostgreSQL disk usage, and API latency.

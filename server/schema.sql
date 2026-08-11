@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS address_transactions (
 );
 
 CREATE INDEX IF NOT EXISTS address_transactions_recent_idx ON address_transactions (address, block_height DESC, tx_index DESC);
+CREATE INDEX IF NOT EXISTS address_transactions_window_idx ON address_transactions (block_height DESC, address);
 
 CREATE TABLE IF NOT EXISTS address_activity (
   id bigserial PRIMARY KEY,
@@ -139,6 +140,8 @@ CREATE TABLE IF NOT EXISTS address_balances (
 );
 
 CREATE INDEX IF NOT EXISTS address_balances_asset_idx ON address_balances (asset_name, balance DESC);
+CREATE INDEX IF NOT EXISTS address_balances_rvn_idx ON address_balances (address) WHERE asset_name = 'RVN';
+CREATE INDEX IF NOT EXISTS address_balances_rich_list_idx ON address_balances (balance DESC, address) WHERE asset_name = 'RVN' AND balance > 0;
 
 CREATE TABLE IF NOT EXISTS assets (
   name text PRIMARY KEY,

@@ -77,6 +77,7 @@ services:
       <<: *app-environment
       SERVICE_NAME: ravencoin-indexer
       INDEXER_BATCH_SIZE: ${INDEXER_BATCH_SIZE:-100}
+      INDEXER_FETCH_CONCURRENCY: ${INDEXER_FETCH_CONCURRENCY:-4}
       INDEXER_POLL_MS: ${INDEXER_POLL_MS:-3000}
       INDEXER_ASSET_PAGE_SIZE: ${INDEXER_ASSET_PAGE_SIZE:-5000}
       INDEXER_BOOTSTRAP_ASSETS: ${INDEXER_BOOTSTRAP_ASSETS:-true}
@@ -114,4 +115,3 @@ services:
       timeout: 8s
       retries: 10
       start_period: 1m
-

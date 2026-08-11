@@ -5,6 +5,19 @@ const number = (value) => value == null ? null : Number(value)
 const epoch = (value) => value == null ? null : Math.floor(new Date(value).getTime() / 1_000)
 const cleanHash = (value) => value?.trim() ?? null
 
+export function mintedSupplyAtHeight(height) {
+  let blocks = Math.max(0, Math.floor(Number(height) || 0))
+  let subsidy = 5_000
+  let supply = 0
+  while (blocks > 0 && subsidy >= 1 / 100_000_000) {
+    const epochBlocks = Math.min(blocks, 2_100_000)
+    supply += epochBlocks * subsidy
+    blocks -= epochBlocks
+    subsidy /= 2
+  }
+  return supply
+}
+
 function mapTransaction(row) {
   return {
     txid: cleanHash(row.txid),
@@ -100,6 +113,157 @@ export async function getIndexedTransactions(pool, limit = 12) {
     LIMIT $1
   `, [limit])
   return rows.map(mapTransaction)
+}
+
+export async function getIndexedNetworkStats(pool) {
+  const [{ rows }, { rows: historyRows }] = await Promise.all([pool.query(`
+    WITH recent_blocks AS MATERIALIZED (
+      SELECT height, time, size, tx_count FROM blocks
+      WHERE time >= (SELECT max(time) - interval '24 hours' FROM blocks)
+    ), rollup AS (
+      SELECT min(height) AS start_height, max(height) AS end_height,
+        min(time) AS window_start, max(time) AS window_end,
+        count(*) AS window_blocks, COALESCE(sum(tx_count), 0) AS window_transactions,
+        COALESCE(avg(size), 0) AS average_block_size,
+        COALESCE(avg(tx_count), 0) AS average_transactions_per_block
+      FROM recent_blocks
+    )
+    SELECT r.*,
+      EXTRACT(EPOCH FROM (r.window_end - r.window_start)) / NULLIF(r.window_blocks - 1, 0) AS average_block_time_seconds,
+      r.window_transactions / NULLIF(EXTRACT(EPOCH FROM (r.window_end - r.window_start)), 0) AS transactions_per_second,
+      (SELECT count(DISTINCT address) FROM address_transactions WHERE block_height >= r.start_height) AS active_addresses,
+      (SELECT COALESCE(avg(total_output_rvn), 0) FROM transactions WHERE block_height >= r.start_height AND tx_index = 0) AS average_block_reward,
+      (SELECT COALESCE(sum(fee_rvn), 0) FROM transactions WHERE block_height >= r.start_height) AS total_fees,
+      (SELECT COALESCE(sum(total_output_rvn), 0) FROM transactions WHERE block_height >= r.start_height) AS output_volume,
+      (SELECT count(*) FROM transactions) AS total_transactions,
+      (SELECT count(*) FROM address_balances WHERE asset_name = 'RVN') AS tracked_addresses,
+      (SELECT count(*) FROM assets) AS total_assets
+    FROM rollup r
+  `), pool.query(`
+    WITH bounds AS (
+      SELECT date_trunc('hour', max(time)) AS end_hour FROM blocks
+    ), hours AS (
+      SELECT generate_series(end_hour - interval '23 hours', end_hour, interval '1 hour') AS hour
+      FROM bounds WHERE end_hour IS NOT NULL
+    ), recent_blocks AS MATERIALIZED (
+      SELECT height, date_trunc('hour', time) AS hour, tx_count, difficulty
+      FROM blocks WHERE time >= (SELECT end_hour - interval '23 hours' FROM bounds)
+    ), block_activity AS (
+      SELECT hour, count(*) AS blocks, COALESCE(sum(tx_count), 0) AS transactions,
+        COALESCE(avg(difficulty), 0) AS difficulty
+      FROM recent_blocks GROUP BY hour
+    ), address_activity AS (
+      SELECT b.hour, count(DISTINCT a.address) AS active_addresses
+      FROM recent_blocks b JOIN address_transactions a ON a.block_height = b.height
+      GROUP BY b.hour
+    )
+    SELECT h.hour, COALESCE(b.blocks, 0) AS blocks,
+      COALESCE(b.transactions, 0) AS transactions,
+      COALESCE(a.active_addresses, 0) AS active_addresses,
+      COALESCE(b.difficulty, 0) AS difficulty
+    FROM hours h
+    LEFT JOIN block_activity b USING (hour)
+    LEFT JOIN address_activity a USING (hour)
+    ORDER BY h.hour
+  `)])
+  const row = rows[0] ?? {}
+  const startHeight = number(row.start_height) ?? 0
+  const endHeight = number(row.end_height) ?? 0
+  return {
+    windowStartHeight: startHeight,
+    windowEndHeight: endHeight,
+    windowStart: epoch(row.window_start),
+    windowEnd: epoch(row.window_end),
+    windowBlocks: number(row.window_blocks) ?? 0,
+    windowTransactions: number(row.window_transactions) ?? 0,
+    activeAddresses: number(row.active_addresses) ?? 0,
+    averageBlockTimeSeconds: number(row.average_block_time_seconds) ?? 0,
+    averageBlockSize: number(row.average_block_size) ?? 0,
+    averageTransactionsPerBlock: number(row.average_transactions_per_block) ?? 0,
+    transactionsPerSecond: number(row.transactions_per_second) ?? 0,
+    averageBlockReward: number(row.average_block_reward) ?? 0,
+    minedRvn: mintedSupplyAtHeight(endHeight) - mintedSupplyAtHeight(startHeight - 1),
+    totalFees: number(row.total_fees) ?? 0,
+    outputVolume: number(row.output_volume) ?? 0,
+    circulatingSupply: mintedSupplyAtHeight(endHeight),
+    totalTransactions: number(row.total_transactions) ?? 0,
+    trackedAddresses: number(row.tracked_addresses) ?? 0,
+    totalAssets: number(row.total_assets) ?? 0,
+    history: historyRows.map((point) => ({
+      timestamp: epoch(point.hour),
+      blocks: number(point.blocks) ?? 0,
+      transactions: number(point.transactions) ?? 0,
+      activeAddresses: number(point.active_addresses) ?? 0,
+      difficulty: number(point.difficulty) ?? 0,
+    })),
+  }
+}
+
+export async function getIndexedAddresses(pool, limit = 50, offset = 0) {
+  const [{ rows }, { rows: distributionRows }] = await Promise.all([
+    pool.query(`
+      WITH ranked AS MATERIALIZED (
+        SELECT address, balance, received, sent, updated_height
+        FROM address_balances
+        WHERE asset_name = 'RVN' AND balance > 0
+        ORDER BY balance DESC, address
+        LIMIT $1 OFFSET $2
+      ), activity AS (
+        SELECT a.address, count(*) AS transaction_count, max(a.block_height) AS last_activity_height
+        FROM address_transactions a JOIN ranked r USING (address)
+        GROUP BY a.address
+      ), mined AS (
+        SELECT oa.address, count(DISTINCT t.block_height) AS blocks_mined
+        FROM output_addresses oa
+        JOIN transactions t USING (txid)
+        JOIN ranked r USING (address)
+        WHERE t.tx_index = 0
+        GROUP BY oa.address
+      )
+      SELECT r.*, COALESCE(a.transaction_count, 0) AS transaction_count,
+        COALESCE(a.last_activity_height, r.updated_height) AS last_activity_height,
+        COALESCE(m.blocks_mined, 0) AS blocks_mined
+      FROM ranked r
+      LEFT JOIN activity a USING (address)
+      LEFT JOIN mined m USING (address)
+      ORDER BY r.balance DESC, r.address
+    `, [limit, offset]),
+    pool.query(`
+      SELECT count(*) AS total_addresses, COALESCE(sum(balance), 0) AS total_balance,
+        count(*) FILTER (WHERE balance >= 1) AS over_one,
+        count(*) FILTER (WHERE balance >= 100) AS over_hundred,
+        count(*) FILTER (WHERE balance >= 1000) AS over_thousand,
+        count(*) FILTER (WHERE balance >= 10000) AS over_ten_thousand,
+        count(*) FILTER (WHERE balance >= 100000) AS over_hundred_thousand,
+        count(*) FILTER (WHERE balance >= 1000000) AS over_million
+      FROM address_balances WHERE asset_name = 'RVN' AND balance > 0
+    `),
+  ])
+  const distribution = distributionRows[0] ?? {}
+  const totalBalance = number(distribution.total_balance) ?? 0
+  return {
+    items: rows.map((row, index) => ({
+      rank: offset + index + 1,
+      address: row.address,
+      balance: number(row.balance) ?? 0,
+      received: number(row.received) ?? 0,
+      sent: number(row.sent) ?? 0,
+      transactionCount: number(row.transaction_count) ?? 0,
+      blocksMined: number(row.blocks_mined) ?? 0,
+      lastActivityHeight: number(row.last_activity_height),
+      share: totalBalance > 0 ? (number(row.balance) ?? 0) / totalBalance : 0,
+    })),
+    total: number(distribution.total_addresses) ?? 0,
+    totalBalance,
+    thresholds: [
+      { balance: 1, addresses: number(distribution.over_one) ?? 0 },
+      { balance: 100, addresses: number(distribution.over_hundred) ?? 0 },
+      { balance: 1_000, addresses: number(distribution.over_thousand) ?? 0 },
+      { balance: 10_000, addresses: number(distribution.over_ten_thousand) ?? 0 },
+      { balance: 100_000, addresses: number(distribution.over_hundred_thousand) ?? 0 },
+      { balance: 1_000_000, addresses: number(distribution.over_million) ?? 0 },
+    ],
+  }
 }
 
 export async function getIndexedBlock(pool, id) {

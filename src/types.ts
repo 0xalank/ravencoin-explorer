@@ -42,6 +42,56 @@ export interface Status {
   }
 }
 
+export interface NetworkStats {
+  windowStartHeight: number
+  windowEndHeight: number
+  windowStart: number | null
+  windowEnd: number | null
+  windowBlocks: number
+  windowTransactions: number
+  activeAddresses: number
+  averageBlockTimeSeconds: number
+  averageBlockSize: number
+  averageTransactionsPerBlock: number
+  transactionsPerSecond: number
+  averageBlockReward: number
+  minedRvn: number
+  totalFees: number
+  outputVolume: number
+  circulatingSupply: number
+  totalTransactions: number
+  trackedAddresses: number
+  totalAssets: number
+  history: StatsHistoryPoint[]
+}
+
+export interface StatsHistoryPoint {
+  timestamp: number
+  blocks: number
+  transactions: number
+  activeAddresses: number
+  difficulty: number
+}
+
+export interface RankedAddress {
+  rank: number
+  address: string
+  balance: number
+  received: number
+  sent: number
+  transactionCount: number
+  blocksMined: number
+  lastActivityHeight: number | null
+  share: number
+}
+
+export interface AddressRankings {
+  items: RankedAddress[]
+  total: number
+  totalBalance: number
+  thresholds: Array<{ balance: number; addresses: number }>
+}
+
 export interface TxInput {
   txid?: string | null
   vout?: number | null

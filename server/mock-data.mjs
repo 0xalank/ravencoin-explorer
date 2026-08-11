@@ -120,6 +120,25 @@ export function mockAddress(address = DEMO_ADDRESS) {
   }
 }
 
+export function mockAddresses(limit = 50, offset = 0) {
+  const total = 200
+  const totalBalance = 11_482_000_000
+  const items = Array.from({ length: Math.min(limit, Math.max(0, total - offset)) }, (_, index) => {
+    const rank = offset + index + 1
+    const balance = Math.round((1_250_000_000 / Math.pow(rank, .72)) * 1e8) / 1e8
+    const address = rank <= addressPool.length ? addressPool[rank - 1] : `R${hashFor(`rich-${rank}`).slice(0, 33)}`
+    return {
+      rank, address, balance, received: balance * 1.42, sent: balance * .42,
+      transactionCount: Math.max(1, 1_850 - rank * 7), blocksMined: rank % 8 === 0 ? 28 - (rank % 27) : 0,
+      lastActivityHeight: DEMO_HEIGHT - rank * 13, share: balance / totalBalance,
+    }
+  })
+  return {
+    items, total, totalBalance,
+    thresholds: [1, 100, 1_000, 10_000, 100_000, 1_000_000].map((balance, index) => ({ balance, addresses: [184_520, 112_804, 63_912, 21_475, 5_824, 914][index] })),
+  }
+}
+
 export const mockAssets = [
   { name: 'RVN', amount: 21_000_000_000, units: 8, reissuable: false, hasIpfs: false, blockHeight: 0 },
   { name: 'RAVENSCOUT', amount: 1_000_000, units: 2, reissuable: true, hasIpfs: true, ipfsHash: 'QmRavenScoutCommunityExplorer', blockHeight: DEMO_HEIGHT - 824 },

@@ -1,20 +1,34 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import {
-  Activity, ArrowLeft, ArrowRight, Box, Braces, Coins, Database, FileKey2,
-  Fingerprint, HardDrive, Pickaxe, SearchX, ShieldCheck,
+  Activity, ArrowLeft, ArrowRight, BarChart3, Box, Clock3, Code2, Coins, Database,
+  ExternalLink, Fingerprint, Gauge, Globe2, Landmark,
+  MessageCircle, Pickaxe, Radio, SearchX, Send, TrendingUp, Users, WalletCards,
 } from 'lucide-react'
 import {
   BlockTable, CopyButton, DemoBanner, DetailGrid, EmptyState, ErrorState, Footer, formatAge,
   formatAmount, formatBytes, formatDate, formatHashrate, HashValue, Header, LoadingState, PageHeader,
-  PageSearch, QuaiMark, RavenGlyph, SearchBox, StatCard, StatusStrip, TransactionRows,
+  PageSearch, QuaiMark, RavenCoinMark, RavenGlyph, SearchBox, StatCard, StatusStrip, TransactionRows,
 } from './components'
 import { useApi } from './lib/api'
 import { useI18n } from './lib/i18n'
 import { Link, usePath } from './lib/router'
-import type { AddressData, Asset, Block, Status, Transaction } from './types'
+import { communityLinks, marketVenues, type CommunityIcon } from './site-data'
+import type { AddressData, AddressRankings, Asset, Block, NetworkStats, StatsHistoryPoint, Status, Transaction } from './types'
 
 function Section({ title, action, children, className = '' }: { title: string; action?: ReactNode; children: ReactNode; className?: string }) {
   return <section className={`section-card ${className}`}><div className="section-card__heading"><h2>{title}</h2>{action}</div>{children}</section>
+}
+
+function IndexerProgress({ status }: { status: Status }) {
+  const { t, locale } = useI18n()
+  if (!status.indexer || status.indexer.progress >= 1) return null
+  const percent = new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 2 }).format(status.indexer.progress)
+  return <section className="indexer-panel">
+    <div className="indexer-panel__status"><span><Database size={16} />{t('indexer.syncing')}</span><strong>{percent}</strong></div>
+    <div className="indexer-panel__track"><i style={{ width: `${Math.max(.35, status.indexer.progress * 100)}%` }} /></div>
+    <div className="indexer-panel__meta"><span>{t('indexer.indexedTip')} <b>#{new Intl.NumberFormat(locale).format(status.indexer.indexedHeight)}</b></span><span>{t('indexer.networkTip')} <b>#{new Intl.NumberFormat(locale).format(status.chainTip ?? status.indexer.targetHeight)}</b></span><span>{new Intl.NumberFormat(locale).format(status.indexer.indexedTransactions)} {t('indexer.transactions')}</span></div>
+    <p>{t('indexer.notice')}</p>
+  </section>
 }
 
 function HomePage({ status }: { status: Status | null }) {
@@ -29,12 +43,15 @@ function HomePage({ status }: { status: Status | null }) {
       </div>
     </section>
     <main className="shell home-main">
-      <div className="stats-grid">
-        <StatCard icon={<Box />} label={t('stats.height')} value={status ? `#${new Intl.NumberFormat(locale).format(status.blocks)}` : '—'} note={status?.indexer && status.indexer.progress < 1 ? `${t('indexer.label')} ${new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 2 }).format(status.indexer.progress)}` : status ? formatAge(Math.floor(Date.now() / 1000 - status.minutesSinceLastBlock * 60), locale) : undefined} />
-        <StatCard icon={<Pickaxe />} label={t('stats.hashrate')} value={status ? formatHashrate(status.networkHashrate, locale) : '—'} note={status ? `${t('stats.difficulty')} ${formatAmount(status.difficulty, locale, 2)}` : undefined} />
-        <StatCard icon={<Activity />} label={t('stats.mempool')} value={status ? new Intl.NumberFormat(locale).format(status.mempoolTransactions) : '—'} note={status ? formatBytes(status.mempoolBytes, locale) : undefined} />
-        <StatCard icon={<HardDrive />} label={t('stats.storage')} value={status ? formatBytes(status.sizeOnDisk, locale) : '—'} note={status ? `${t('stats.sync')} ${new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 2 }).format(status.verificationProgress)}` : undefined} />
-      </div>
+      <section className="network-overview">
+        <div className="network-overview__heading"><span>{t('stats.networkOverview')}</span><b><i />{t('status.mainnet')}</b></div>
+        <div className="network-overview__metrics">
+          <StatCard icon={<Box />} label={t('stats.height')} value={status ? `#${new Intl.NumberFormat(locale).format(status.chainTip ?? status.blocks)}` : '—'} note={status?.indexer ? `${t('indexer.indexedTip')} #${new Intl.NumberFormat(locale).format(status.indexer.indexedHeight)} · ${t('stats.sync')} ${new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 1 }).format(status.verificationProgress)}` : status ? formatAge(Math.floor(Date.now() / 1000 - status.minutesSinceLastBlock * 60), locale) : undefined} />
+          <StatCard icon={<Pickaxe />} label={t('stats.hashrate')} value={status ? formatHashrate(status.networkHashrate, locale) : '—'} note={status ? `${t('stats.difficulty')} ${formatAmount(status.difficulty, locale, 2)}` : undefined} />
+          <StatCard icon={<Activity />} label={t('stats.mempool')} value={status ? new Intl.NumberFormat(locale).format(status.mempoolTransactions) : '—'} note={status ? formatBytes(status.mempoolBytes, locale) : undefined} />
+        </div>
+      </section>
+      {status && <IndexerProgress status={status} />}
       <aside className="merge-mining-card">
         <span className="merge-mining-card__logo"><QuaiMark /></span>
         <div><span className="merge-mining-card__eyebrow">SOAP · QUAI NETWORK</span><h2>{t('merge.title')}</h2><p>{t('merge.body')}</p></div>
@@ -53,6 +70,138 @@ function HomePage({ status }: { status: Status | null }) {
       </Section>
     </main>
   </>
+}
+
+function MetricTile({ icon, label, value, detail }: { icon: ReactNode; label: string; value: ReactNode; detail?: ReactNode }) {
+  return <article className="metric-tile"><span>{icon}</span><div><small>{label}</small><strong>{value}</strong>{detail && <p>{detail}</p>}</div></article>
+}
+
+function StatsChart({ data, valueKey, title, color, locale, formatValue }: { data: StatsHistoryPoint[]; valueKey: keyof Pick<StatsHistoryPoint, 'transactions' | 'activeAddresses' | 'difficulty'>; title: string; color: string; locale: string; formatValue: (value: number) => string }) {
+  const width = 720; const height = 230; const top = 34; const bottom = 30; const side = 18
+  const values = data.map((point) => point[valueKey])
+  const maximum = Math.max(...values, 1)
+  const rawMinimum = Math.min(...values, 0)
+  const minimum = valueKey === 'difficulty' && rawMinimum > 0 ? rawMinimum * .97 : 0
+  const range = Math.max(maximum - minimum, 1)
+  const x = (index: number) => side + (data.length < 2 ? 0 : index / (data.length - 1)) * (width - side * 2)
+  const y = (value: number) => top + (1 - (value - minimum) / range) * (height - top - bottom)
+  const points = data.map((point, index) => `${x(index)},${y(point[valueKey])}`).join(' ')
+  const area = data.length ? `M ${x(0)} ${height - bottom} L ${points.replaceAll(' ', ' L ')} L ${x(data.length - 1)} ${height - bottom} Z` : ''
+  const labels = data.length ? [0, Math.floor((data.length - 1) / 2), data.length - 1] : []
+  const time = (timestamp: number) => new Intl.DateTimeFormat(locale, { hour: 'numeric', minute: '2-digit' }).format(timestamp * 1000)
+  return <article className="chart-panel">
+    <div className="chart-panel__heading"><div><h2>{title}</h2><span>{data.length ? time(data.at(-1)!.timestamp) : '—'}</span></div><strong>{data.length ? formatValue(data.at(-1)![valueKey]) : '—'}</strong></div>
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title} preserveAspectRatio="none">
+      <defs><linearGradient id={`fill-${valueKey}`} x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor={color} stopOpacity=".26" /><stop offset="1" stopColor={color} stopOpacity="0" /></linearGradient></defs>
+      {[0, .33, .66, 1].map((step) => <line key={step} x1={side} x2={width - side} y1={top + step * (height - top - bottom)} y2={top + step * (height - top - bottom)} className="chart-gridline" />)}
+      {area && <path d={area} fill={`url(#fill-${valueKey})`} />}
+      {points && <polyline points={points} fill="none" stroke={color} strokeWidth="2.5" vectorEffect="non-scaling-stroke" />}
+      {data.length ? <circle cx={x(data.length - 1)} cy={y(data.at(-1)![valueKey])} r="4" fill={color} /> : null}
+      {labels.map((index) => <text key={index} x={x(index)} y={height - 7} textAnchor={index === 0 ? 'start' : index === data.length - 1 ? 'end' : 'middle'}>{time(data[index].timestamp)}</text>)}
+    </svg>
+  </article>
+}
+
+function StatsPage({ status }: { status: Status | null }) {
+  const { t, locale } = useI18n()
+  const stats = useApi<NetworkStats>('/api/stats', 30_000)
+  const number = (value: number, maximumFractionDigits = 0) => new Intl.NumberFormat(locale, { maximumFractionDigits }).format(value)
+  const data = stats.data
+  return <main className="shell page technical-page"><PageHeader eyebrow="KAWPOW · MAINNET TELEMETRY" title={t('stats.title')} subtitle={t('stats.subtitle')} />
+    {status && <IndexerProgress status={status} />}
+    {stats.loading && !data ? <LoadingState /> : stats.error ? <ErrorState error={stats.error} retry={stats.refetch} /> : data && <>
+      <section className="stats-dashboard">
+        <div className="stats-dashboard__heading"><div><span>{t('stats.indexedSeries')}</span><h2>{t('stats.networkOverview')}</h2></div><span>KAWPOW · MAINNET</span></div>
+        <div className="stats-topline">
+          <div><Pickaxe /><span>{t('stats.hashrate')}</span><strong>{status ? formatHashrate(status.networkHashrate, locale) : '—'}</strong><small>KAWPOW</small></div>
+          <div><Gauge /><span>{t('stats.difficulty')}</span><strong>{status ? number(status.difficulty, 2) : '—'}</strong><small>{t('stats.current')}</small></div>
+          <div><Activity /><span>{t('stats.windowTransactions')}</span><strong>{number(data.windowTransactions)}</strong><small>{number(data.averageTransactionsPerBlock, 2)} / block</small></div>
+          <div><Users /><span>{t('stats.activeAddresses')}</span><strong>{number(data.activeAddresses)}</strong><small>{t('stats.indexed24h')}</small></div>
+          <div><Clock3 /><span>{t('stats.blockTime')}</span><strong>{number(data.averageBlockTimeSeconds, 1)}s</strong><small>{number(data.windowBlocks)} blocks</small></div>
+          <div><RavenCoinMark /><span>{t('stats.mined')}</span><strong>{number(data.minedRvn, 2)} RVN</strong><small>{number(data.totalFees, 4)} RVN fees</small></div>
+        </div>
+        <div className="charts-grid">
+          <StatsChart data={data.history} valueKey="transactions" title={t('stats.transactionsChart')} color="#f28c28" locale={locale} formatValue={(value) => number(value)} />
+          <StatsChart data={data.history} valueKey="activeAddresses" title={t('stats.addressesChart')} color="#e14c3d" locale={locale} formatValue={(value) => number(value)} />
+          <StatsChart data={data.history} valueKey="difficulty" title={t('stats.difficultyChart')} color="#757ccb" locale={locale} formatValue={(value) => number(value, 2)} />
+        </div>
+        <div className="stats-data-section"><h2>{t('stats.chainData')}</h2><div className="stats-data-grid">
+          <div><span>{t('indexer.networkTip')}</span><strong>#{number(status?.chainTip ?? status?.blocks ?? data.windowEndHeight)}</strong></div>
+          <div><span>{t('indexer.indexedTip')}</span><strong>#{number(status?.indexer?.indexedHeight ?? data.windowEndHeight)}</strong></div>
+          <div><span>{t('stats.headers')}</span><strong>#{number(status?.headers ?? 0)}</strong></div>
+          <div><span>{t('stats.totalTransactions')}</span><strong>{number(data.totalTransactions)}</strong></div>
+          <div><span>{t('stats.trackedAddresses')}</span><strong><Link className="text-link" href="/addresses">{number(data.trackedAddresses)}</Link></strong></div>
+          <div><span>{t('stats.circulating')}</span><strong>{number(data.circulatingSupply, 2)} RVN</strong></div>
+          <div><span>{t('stats.assetsIndexed')}</span><strong>{number(data.totalAssets)}</strong></div>
+          <div><span>{t('stats.outputVolume')}</span><strong>{number(data.outputVolume, 2)} RVN</strong></div>
+        </div></div>
+      </section>
+      <div className="window-note"><Radio size={15} /><span>{t('stats.windowNote')} <b>#{number(data.windowStartHeight)}</b> — <b>#{number(data.windowEndHeight)}</b>{data.windowEnd ? ` · ${formatDate(data.windowEnd, locale)}` : ''}</span></div>
+    </>}
+  </main>
+}
+
+function AddressesPage() {
+  const { t, locale } = useI18n()
+  const [page, setPage] = useState(0)
+  const limit = 50
+  const result = useApi<AddressRankings>(`/api/addresses?limit=${limit}&offset=${page * limit}`)
+  const data = result.data
+  const number = (value: number, maximumFractionDigits = 0) => new Intl.NumberFormat(locale, { maximumFractionDigits }).format(value)
+  const shownStart = data?.items.length ? page * limit + 1 : 0
+  const shownEnd = data ? page * limit + data.items.length : 0
+  return <main className="shell page technical-page"><PageHeader eyebrow="RVN · INDEXED BALANCES" title={t('addresses.title')} subtitle={t('addresses.subtitle')} />
+    {result.loading && !data ? <LoadingState /> : result.error ? <ErrorState error={result.error} retry={result.refetch} /> : data && <>
+      <div className="address-summary-grid">
+        <MetricTile icon={<WalletCards />} label={t('addresses.positive')} value={number(data.total)} />
+        <MetricTile icon={<Coins />} label={t('addresses.balance')} value={`${number(data.totalBalance, 2)} RVN`} detail={t('addresses.indexed')} />
+        <MetricTile icon={<Landmark />} label={t('addresses.topBalance')} value={data.items[0] ? `${number(data.items[0].balance, 2)} RVN` : '—'} />
+      </div>
+      <Section title={t('addresses.distribution')} className="top-gap">
+        <div className="threshold-grid">{data.thresholds.map((threshold) => <div key={threshold.balance}><span>≥ {number(threshold.balance)} RVN</span><strong>{number(threshold.addresses)}</strong><small>{t('addresses.addresses')}</small></div>)}</div>
+      </Section>
+      <Section title={t('addresses.richList')} className="top-gap">
+        <div className="address-table-wrap"><table className="address-table"><thead><tr><th>{t('addresses.rank')}</th><th>{t('address.title')}</th><th>{t('address.balance')}</th><th>{t('addresses.share')}</th><th>{t('field.transactions')}</th><th>{t('addresses.blocksMined')}</th><th>{t('addresses.lastActivity')}</th></tr></thead><tbody>
+          {data.items.map((item) => <tr key={item.address}><td><b>#{item.rank}</b></td><td><Link className="mono-link" href={`/address/${item.address}`}>{item.address}</Link></td><td><strong>{number(item.balance, 8)} RVN</strong></td><td>{number(item.share * 100, 4)}%</td><td>{number(item.transactionCount)}</td><td>{number(item.blocksMined)}</td><td>{item.lastActivityHeight == null ? '—' : <Link className="height-link" href={`/block/${item.lastActivityHeight}`}>#{number(item.lastActivityHeight)}</Link>}</td></tr>)}
+        </tbody></table></div>
+        <div className="pagination"><button disabled={page === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}><ArrowLeft size={16} />{t('addresses.newer')}</button><span>{number(shownStart)} — {number(shownEnd)} / {number(data.total)}</span><button disabled={shownEnd >= data.total} onClick={() => setPage((value) => value + 1)}>{t('addresses.older')}<ArrowRight size={16} /></button></div>
+      </Section>
+      <p className="index-data-note">{t('addresses.note')}</p>
+    </>}
+  </main>
+}
+
+function MarketsPage() {
+  const { t } = useI18n()
+  return <main className="shell page technical-page"><PageHeader eyebrow="RVN · GLOBAL SPOT MARKETS" title={t('markets.title')} subtitle={t('markets.subtitle')} />
+    <div className="market-summary"><Landmark /><div><strong>{t('markets.heading')}</strong><p>{t('markets.body')}</p></div><a href="https://coinmarketcap.com/currencies/ravencoin/#Markets" target="_blank" rel="noreferrer">CoinMarketCap <ExternalLink size={14} /></a></div>
+    <div className="market-directory">{marketVenues.map((venue) => <a className="market-card" href={venue.href} target="_blank" rel="noreferrer" key={venue.name}>
+      <span className="market-card__logo" style={{ '--market-color': venue.color } as CSSProperties}><span>{venue.mark}</span><img src={venue.logo} alt={`${venue.name} logo`} loading="lazy" onError={(event) => { event.currentTarget.style.display = 'none' }} /></span>
+      <div><h2>{venue.name}</h2><p>{venue.pair}</p></div>
+      <span className="market-card__region">{venue.region}</span><ExternalLink size={15} />
+    </a>)}</div>
+    <p className="market-disclaimer">{t('markets.disclaimer')}</p>
+  </main>
+}
+
+function CommunityGlyph({ icon }: { icon: CommunityIcon }) {
+  if (icon === 'telegram') return <Send />
+  if (icon === 'discord') return <MessageCircle />
+  if (icon === 'reddit') return <Radio />
+  if (icon === 'github') return <Code2 />
+  if (icon === 'globe') return <Globe2 />
+  return <span className="x-glyph">X</span>
+}
+
+function CommunityPage() {
+  const { t } = useI18n()
+  return <main className="shell page technical-page"><PageHeader eyebrow="OPEN SOURCE · COMMUNITY OPERATED" title={t('community.title')} subtitle={t('community.subtitle')} />
+    <div className="community-callout"><Users /><div><strong>{t('community.heading')}</strong><p>{t('community.body')}</p></div></div>
+    <div className="community-grid">{communityLinks.map((item) => <a className="community-card" href={item.href} target="_blank" rel="noreferrer" key={item.name}>
+      <span className={`community-card__icon community-card__icon--${item.icon}`}><CommunityGlyph icon={item.icon} /></span>
+      <div><span>{item.language ?? t('community.global')}</span><h2>{item.name}</h2><p>{item.description}</p></div><ExternalLink size={16} />
+    </a>)}</div>
+  </main>
 }
 
 function BlocksPage() {
@@ -109,13 +258,12 @@ function TransactionPage({ txid }: { txid: string }) {
     { label: t('tx.total'), value: `${formatAmount(data.totalOutput, locale)} RVN` },
     { label: t('tx.fee'), value: data.fee == null ? '—' : `${formatAmount(data.fee, locale)} RVN` },
   ]
-  return <main className="shell page"><PageHeader eyebrow={`${t('tx.title')} · ${t('status.mainnet')}`} title={t('tx.title')} subtitle={<span className="heading-hash">{data.txid}</span>} />
-    <Section title={t('common.details')}><DetailGrid items={details} /></Section>
-    <div className="io-grid top-gap"><Section title={`${t('tx.inputs')} · ${data.vin?.length ?? 0}`}>
-      <div className="io-list">{data.vin?.map((input, index) => <div className="io-item" key={`${input.txid}-${index}`}><span className="io-index">{index}</span><div>{input.coinbase ? <><strong>{t('tx.coinbase')}</strong><code>{input.coinbase}</code></> : <><HashValue value={input.address ?? input.txid ?? t('common.unknown')} type={input.address ? 'address' : input.txid ? 'tx' : undefined} /><small>{input.value == null ? `${t('field.output')} #${input.vout ?? 0}` : `${formatAmount(input.value, locale)} RVN`}</small></>}</div></div>)}</div>
-    </Section><Section title={`${t('tx.outputs')} · ${data.vout?.length ?? 0}`}>
-      <div className="io-list">{data.vout?.map((output) => <div className="io-item" key={output.n}><span className="io-index">{output.n}</span><div>{output.addresses.length ? output.addresses.map((address) => <HashValue key={address} value={address} type="address" />) : <span>{t('tx.noAddress')}</span>}<small>{output.asset ? `${formatAmount(output.asset.amount, locale)} ${output.asset.name}` : `${formatAmount(output.value, locale)} RVN`}</small></div></div>)}</div>
-    </Section></div>
+  return <main className="shell page record-page"><PageHeader eyebrow={`${t('tx.title')} · ${t('status.mainnet')}`} title={t('tx.title')} subtitle={<span className="heading-hash">{data.txid}</span>} />
+    <Section title={t('common.details')} className="detail-panel"><DetailGrid items={details} /></Section>
+    <Section title={`${t('tx.inputs')} & ${t('tx.outputs')}`} className="top-gap transaction-flow-panel"><div className="io-unified">
+      <div><h3>{t('tx.inputs')} <span>{data.vin?.length ?? 0}</span></h3><div className="io-list">{data.vin?.map((input, index) => <div className="io-item" key={`${input.txid}-${index}`}><span className="io-index">{index}</span><div>{input.coinbase ? <><strong>{t('tx.coinbase')}</strong><code>{input.coinbase}</code></> : <><HashValue value={input.address ?? input.txid ?? t('common.unknown')} type={input.address ? 'address' : input.txid ? 'tx' : undefined} /><small className="coin-value"><RavenCoinMark />{input.value == null ? `${t('field.output')} #${input.vout ?? 0}` : `${formatAmount(input.value, locale)} RVN`}</small></>}</div></div>)}</div></div>
+      <div><h3>{t('tx.outputs')} <span>{data.vout?.length ?? 0}</span></h3><div className="io-list">{data.vout?.map((output) => <div className="io-item" key={output.n}><span className="io-index">{output.n}</span><div>{output.addresses.length ? output.addresses.map((address) => <HashValue key={address} value={address} type="address" />) : <span>{t('tx.noAddress')}</span>}<small className="coin-value">{!output.asset && <RavenCoinMark />}{output.asset ? `${formatAmount(output.asset.amount, locale)} ${output.asset.name}` : `${formatAmount(output.value, locale)} RVN`}</small></div></div>)}</div></div>
+    </div></Section>
   </main>
 }
 
@@ -124,11 +272,15 @@ function AddressPage({ address }: { address: string }) {
   const { data, loading, error, refetch } = useApi<AddressData>(`/api/address/${encodeURIComponent(address)}`)
   if (loading && !data) return <main className="shell page"><LoadingState /></main>
   if (error || !data) return <main className="shell page"><ErrorState error={error ?? new Error(t('error.notFound'))} retry={refetch} /></main>
-  return <main className="shell page"><PageHeader eyebrow={`${t('address.title')} · ${t('status.mainnet')}`} title={t('address.title')} subtitle={<span className="heading-hash">{data.address}</span>}><CopyButton value={data.address} /></PageHeader>
-    <div className="stats-grid stats-grid--three"><StatCard icon={<Coins />} label={t('address.balance')} value={`${formatAmount(data.balance, locale)} RVN`} /><StatCard icon={<ArrowRight />} label={t('address.received')} value={`${formatAmount(data.received, locale)} RVN`} /><StatCard icon={<ArrowLeft />} label={t('address.sent')} value={`${formatAmount(data.sent, locale)} RVN`} /></div>
-    <div className="address-grid top-gap"><Section title={t('address.assets')}><div className="balance-list">{data.balances.map((balance) => <Link href={`/asset/${encodeURIComponent(balance.assetName)}`} key={balance.assetName}><span className="asset-avatar">{balance.assetName.slice(0, 2)}</span><span><strong>{balance.assetName}</strong><small>{t('address.received')} {formatAmount(balance.received, locale)}</small></span><b>{formatAmount(balance.balance, locale)}</b></Link>)}</div></Section>
-      <Section title={t('address.utxos')}><div className="utxo-list">{data.utxos.slice(0, 8).map((utxo) => <div key={`${utxo.txid}-${utxo.outputIndex}`}><span><Link className="mono-link truncate" href={`/tx/${utxo.txid}`}>{utxo.txid}</Link><small>#{utxo.outputIndex} · {t('field.height')} {utxo.height}</small></span><strong>{formatAmount(utxo.amount, locale)} {utxo.assetName}</strong></div>)}</div></Section>
-    </div>
+  return <main className="shell page record-page"><PageHeader eyebrow={`${t('address.title')} · ${t('status.mainnet')}`} title={t('address.title')} subtitle={<span className="heading-hash">{data.address}</span>}><CopyButton value={data.address} /></PageHeader>
+    <Section title={t('address.overview')} className="account-overview"><div className="account-summary">
+      <div className="account-summary__balance"><RavenCoinMark /><span><small>{t('address.balance')}</small><strong>{formatAmount(data.balance, locale)} <b>RVN</b></strong></span></div>
+      <div><small>{t('address.received')}</small><strong>{formatAmount(data.received, locale)} RVN</strong></div>
+      <div><small>{t('address.sent')}</small><strong>{formatAmount(data.sent, locale)} RVN</strong></div>
+      <div><small>{t('field.transactions')}</small><strong>{new Intl.NumberFormat(locale).format(data.transactionCount)}</strong></div>
+    </div></Section>
+    <Section title={t('address.holdings')} className="top-gap holdings-panel"><div className="address-holdings-grid"><div><h3>{t('address.assets')} <span>{data.balances.length}</span></h3><div className="balance-list">{data.balances.map((balance) => <Link href={`/asset/${encodeURIComponent(balance.assetName)}`} key={balance.assetName}>{balance.assetName === 'RVN' ? <RavenCoinMark /> : <span className="asset-avatar">{balance.assetName.slice(0, 2)}</span>}<span><strong>{balance.assetName}</strong><small>{t('address.received')} {formatAmount(balance.received, locale)}</small></span><b>{formatAmount(balance.balance, locale)}</b></Link>)}</div></div>
+      <div><h3>{t('address.utxos')} <span>{data.utxos.length}</span></h3><div className="utxo-list">{data.utxos.slice(0, 8).map((utxo) => <div key={`${utxo.txid}-${utxo.outputIndex}`}><span><Link className="mono-link truncate" href={`/tx/${utxo.txid}`}>{utxo.txid}</Link><small>#{utxo.outputIndex} · {t('field.height')} {utxo.height}</small></span><strong className="coin-value">{utxo.assetName === 'RVN' && <RavenCoinMark />}{formatAmount(utxo.amount, locale)} {utxo.assetName}</strong></div>)}</div></div></div></Section>
     <Section title={`${t('address.transactions')} · ${new Intl.NumberFormat(locale).format(data.transactionCount)}`} className="top-gap"><TransactionRows transactions={data.transactions} /></Section>
   </main>
 }
@@ -165,12 +317,12 @@ function AssetPage({ name }: { name: string }) {
 
 function AboutPage() {
   const { t } = useI18n()
-  const principles = [
-    [<ShieldCheck />, 'about.independent', 'about.independentBody'], [<FileKey2 />, 'about.private', 'about.privateBody'], [<Braces />, 'about.open', 'about.openBody'],
-  ] as const
   return <main className="shell page about-page"><PageHeader eyebrow="Ravencoin Community Explorer" title={t('about.title')} subtitle={t('about.body')} />
-    <div className="principles">{principles.map(([icon, title, body]) => <article key={title}><span>{icon}</span><h2>{t(title)}</h2><p>{t(body)}</p></article>)}</div>
-    <div className="built-by"><div><span className="eyebrow">Dominant Strategies</span><h2>Strategy, product, and technology.</h2><p>The Ravencoin Community Explorer is developed and operated by Dominant Strategies.</p></div><a className="button" href="https://dominantstrategies.io" target="_blank" rel="noreferrer">dominantstrategies.io <ArrowRight size={16} /></a></div>
+    <div className="about-partners">
+      <a className="about-partner about-partner--dominant" href="https://dominantstrategies.io" target="_blank" rel="noreferrer"><span>{t('about.developed')}</span><img src="/dominant-strategies-logo.svg" alt="Dominant Strategies" /><p>{t('about.dominant')}</p><ExternalLink /></a>
+      <a className="about-partner about-partner--quai" href="https://soap.qu.ai" target="_blank" rel="noreferrer"><span>{t('about.mergeMining')}</span><QuaiMark /><div><strong>Quai Network</strong><p>{t('about.quai')}</p></div><ExternalLink /></a>
+    </div>
+    <div className="about-disclosure"><Radio /><p>{t('about.disclosure')}</p></div>
   </main>
 }
 
@@ -182,7 +334,11 @@ function NotFoundPage() {
 function Route({ path, status }: { path: string; status: Status | null }) {
   if (path === '/') return <HomePage status={status} />
   if (path === '/blocks') return <BlocksPage />
+  if (path === '/addresses' || path === '/rich-list') return <AddressesPage />
   if (path === '/assets') return <AssetsPage />
+  if (path === '/stats') return <StatsPage status={status} />
+  if (path === '/markets') return <MarketsPage />
+  if (path === '/community') return <CommunityPage />
   if (path === '/about') return <AboutPage />
   if (path.startsWith('/block/')) return <BlockPage id={decodeURIComponent(path.slice(7))} />
   if (path.startsWith('/tx/')) return <TransactionPage txid={decodeURIComponent(path.slice(4))} />

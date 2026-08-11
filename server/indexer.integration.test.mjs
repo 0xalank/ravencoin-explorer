@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import pg from 'pg'
 import { migrate } from './db.mjs'
 import { indexBlockBatch, rollbackTo } from './indexer.mjs'
-import { getIndexedAddress, getIndexedBlock, getIndexedTransaction } from './repository.mjs'
+import { getIndexedAddress, getIndexedAddresses, getIndexedBlock, getIndexedNetworkStats, getIndexedTransaction } from './repository.mjs'
 
 const connectionString = process.env.TEST_DATABASE_URL
 
@@ -84,6 +84,16 @@ test('indexes balances, spends, assets and reverses a reorg transactionally', { 
   const blockView = await getIndexedBlock(pool, 1)
   assert.equal(blockView.hash, nextHash)
   assert.equal(blockView.transactions.length, 1)
+  const rankings = await getIndexedAddresses(pool, 10, 0)
+  assert.equal(rankings.total, 2)
+  assert.equal(rankings.items[0].address, addressB)
+  assert.equal(rankings.items[0].balance, 40)
+  assert.equal(rankings.items[1].address, addressA)
+  const networkStats = await getIndexedNetworkStats(pool)
+  assert.equal(networkStats.windowBlocks, 2)
+  assert.equal(networkStats.windowTransactions, 2)
+  assert.equal(networkStats.totalFees, .1)
+  assert.equal(networkStats.circulatingSupply, 5_000)
 
   const fakeRpc = { batch: async () => [], call: async () => ({}) }
   await rollbackTo(pool, fakeRpc, 0)

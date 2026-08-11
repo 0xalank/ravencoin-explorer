@@ -7,6 +7,7 @@ import {
   DEMO_ADDRESS,
   DEMO_HEIGHT,
   mockAddress,
+  mockAddresses,
   mockAsset,
   mockAssets,
   mockBlock,
@@ -28,6 +29,7 @@ import {
 } from './rpc.mjs'
 import {
   getIndexedAddress,
+  getIndexedAddresses,
   getIndexedAsset,
   getIndexedAssets,
   getIndexedBlock,
@@ -35,6 +37,7 @@ import {
   getIndexedStatus,
   getIndexedTransaction,
   getIndexedTransactions,
+  getIndexedNetworkStats,
   searchIndexed,
 } from './repository.mjs'
 
@@ -131,6 +134,29 @@ export function createApp(options = {}) {
     () => useDatabase ? getIndexedStatus(pool, rpc) : getLiveStatus(rpc),
     () => mockStatus(),
     5))
+  app.get('/api/stats', withData(
+    () => useDatabase ? getIndexedNetworkStats(pool) : Promise.resolve({
+      windowStartHeight: 0, windowEndHeight: 0, windowStart: null, windowEnd: null,
+      windowBlocks: 0, windowTransactions: 0, activeAddresses: 0, averageBlockTimeSeconds: 0,
+      averageBlockSize: 0, averageTransactionsPerBlock: 0, transactionsPerSecond: 0,
+      averageBlockReward: 0, totalTransactions: 0, trackedAddresses: 0, totalAssets: 0,
+      minedRvn: 0, totalFees: 0, outputVolume: 0, circulatingSupply: 0, history: [],
+    }),
+    () => ({
+      windowStartHeight: DEMO_HEIGHT - 1439, windowEndHeight: DEMO_HEIGHT,
+      windowStart: Math.floor(Date.now() / 1000) - 86_400, windowEnd: Math.floor(Date.now() / 1000),
+      windowBlocks: 1440, windowTransactions: 3852, activeAddresses: 1274,
+      averageBlockTimeSeconds: 60.2, averageBlockSize: 5824, averageTransactionsPerBlock: 2.68,
+      transactionsPerSecond: 0.045, averageBlockReward: 2500, totalTransactions: 12_847_321,
+      minedRvn: 3_600_000, totalFees: 182.742, outputVolume: 94_127_382.42, circulatingSupply: 15_208_941_250,
+      trackedAddresses: 482_193, totalAssets: 87_965,
+      history: Array.from({ length: 24 }, (_, hour) => ({
+        timestamp: Math.floor(Date.now() / 1000) - (23 - hour) * 3600,
+        blocks: 55 + (hour * 7) % 13, transactions: 110 + (hour * 37) % 140,
+        activeAddresses: 48 + (hour * 19) % 90, difficulty: 58_000 + (hour * 1379) % 8_000,
+      })),
+    }),
+    30))
   app.get('/api/blocks', withData(
     (request) => useDatabase
       ? getIndexedBlocks(pool, clamp(request.query.limit, 1, 30), request.query.start == null ? undefined : Number(request.query.start))
@@ -155,6 +181,12 @@ export function createApp(options = {}) {
     (request) => useDatabase ? getIndexedAddress(pool, request.params.address) : getLiveAddress(rpc, request.params.address),
     (request) => mockAddress(request.params.address),
   ))
+  app.get('/api/addresses', withData(
+    (request) => useDatabase
+      ? getIndexedAddresses(pool, clamp(request.query.limit, 1, 100), Math.max(0, Number(request.query.offset) || 0))
+      : Promise.reject(new RpcError('Address rankings require the PostgreSQL index.', -1, 503)),
+    (request) => mockAddresses(clamp(request.query.limit, 1, 100), Math.max(0, Number(request.query.offset) || 0)),
+    120))
   app.get('/api/assets', withData(
     (request) => useDatabase
       ? getIndexedAssets(pool, String(request.query.q ?? ''), clamp(request.query.limit, 1, 100), Math.max(0, Number(request.query.offset) || 0))
