@@ -130,8 +130,21 @@ export const mockAssets = [
 ]
 
 export function mockAsset(name) {
-  return mockAssets.find((asset) => asset.name === decodeURIComponent(name).toUpperCase()) ?? {
+  const asset = mockAssets.find((item) => item.name === decodeURIComponent(name).toUpperCase()) ?? {
     ...mockAssets[1],
     name: decodeURIComponent(name).toUpperCase(),
+  }
+  return {
+    ...asset,
+    transfers: Array.from({ length: 7 }, (_, index) => ({
+      txid: hashFor(`asset-${asset.name}-${index}`),
+      blockHeight: DEMO_HEIGHT - index * 8,
+      time: now - index * 8 * 63,
+      outputIndex: index % 3,
+      type: index === 6 ? 'issue' : index === 3 ? 'reissue' : 'transfer',
+      amount: index === 6 ? asset.amount : 25 + index * 12.5,
+      fromAddresses: index === 6 ? [] : [addressPool[index % addressPool.length]],
+      toAddresses: [addressPool[(index + 1) % addressPool.length]],
+    })),
   }
 }

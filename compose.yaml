@@ -1,0 +1,76 @@
+name: ravencoin-explorer
+
+x-app-environment: &app-environment
+  NODE_ENV: production
+  DATABASE_URL: postgresql://${POSTGRES_USER:-ravencoin}:${POSTGRES_PASSWORD:-ravencoin-local}@postgres:5432/${POSTGRES_DB:-ravencoin_explorer}
+  RAVEN_RPC_URL: ${RAVEN_RPC_URL:-http://host.docker.internal:8766}
+  RAVEN_RPC_USER: ${RAVEN_RPC_USER:-ravencoinrpc}
+  RAVEN_RPC_PASSWORD: ${RAVEN_RPC_PASSWORD:-replace-me}
+  RAVEN_RPC_TIMEOUT_MS: ${RAVEN_RPC_TIMEOUT_MS:-10000}
+  EXPLORER_DATA_SOURCE: postgres
+  EXPLORER_DEMO_MODE: ${EXPLORER_DEMO_MODE:-false}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    shm_size: 256mb
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ravencoin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ravencoin-local}
+      POSTGRES_DB: ${POSTGRES_DB:-ravencoin_explorer}
+    volumes:
+      - explorer-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ravencoin} -d ${POSTGRES_DB:-ravencoin_explorer}"]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+      start_period: 10s
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+
+  indexer:
+    build: .
+    restart: unless-stopped
+    command: ["node", "server/indexer.mjs"]
+    environment:
+      <<: *app-environment
+      SERVICE_NAME: ravencoin-indexer
+      INDEXER_BATCH_SIZE: ${INDEXER_BATCH_SIZE:-20}
+      INDEXER_POLL_MS: ${INDEXER_POLL_MS:-5000}
+      INDEXER_ASSET_PAGE_SIZE: ${INDEXER_ASSET_PAGE_SIZE:-1000}
+      INDEXER_BOOTSTRAP_ASSETS: ${INDEXER_BOOTSTRAP_ASSETS:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  explorer:
+    build: .
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      SERVICE_NAME: ravencoin-api
+      PORT: 3000
+      API_RATE_LIMIT_PER_MINUTE: ${API_RATE_LIMIT_PER_MINUTE:-180}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      indexer:
+        condition: service_started
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${EXPLORER_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  explorer-postgres:

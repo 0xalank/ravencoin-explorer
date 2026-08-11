@@ -1,4 +1,4 @@
-export type DataSource = 'live' | 'demo'
+export type DataSource = 'live' | 'indexed' | 'demo'
 
 export interface ApiMeta {
   source: DataSource
@@ -26,6 +26,20 @@ export interface Status {
   mempoolBytes: number
   networkHashrate: number
   minutesSinceLastBlock: number
+  chainTip?: number
+  indexer?: {
+    status: 'idle' | 'syncing' | 'ready' | 'error' | 'reorg'
+    indexedHeight: number
+    targetHeight: number
+    progress: number
+    indexedBlocks: number
+    indexedTransactions: number
+    indexedAssets: number
+    databaseBytes: number
+    latencyMs: number
+    lastError?: string | null
+    updatedAt?: string | null
+  }
 }
 
 export interface TxInput {
@@ -114,4 +128,16 @@ export interface Asset {
   ipfsHash?: string | null
   blockHeight?: number | null
   blockHash?: string | null
+  transfers?: AssetTransfer[]
+}
+
+export interface AssetTransfer {
+  txid: string
+  blockHeight: number
+  time: number
+  outputIndex: number
+  type: 'issue' | 'reissue' | 'transfer'
+  amount: number
+  fromAddresses: string[]
+  toAddresses: string[]
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { ArrowRight, Check, ChevronDown, Clipboard, Globe2, Menu, Search, X } from 'lucide-react'
+import { ArrowRight, Check, ChevronDown, Clipboard, Database, Globe2, Menu, Search, X } from 'lucide-react'
 import { api } from './lib/api'
 import { languages, useI18n } from './lib/i18n'
 import { Link, navigate } from './lib/router'
@@ -46,8 +46,8 @@ export function Header({ meta }: { meta: ApiMeta | null }) {
         {nav.map(([href, key]) => <Link key={href} href={href} className={path === href ? 'active' : ''} onClick={() => setMenuOpen(false)}>{t(key)}</Link>)}
       </nav>
       <div className="header__actions">
-        <span className={`network-pill ${!meta ? 'network-pill--loading' : meta.source === 'demo' ? 'network-pill--demo' : ''}`}>
-          <i /> <span>{!meta ? t('common.loading') : meta.source === 'demo' ? t('status.demo') : t('status.live')}</span>
+        <span className={`network-pill ${!meta ? 'network-pill--loading' : meta.source === 'demo' ? 'network-pill--demo' : meta.source === 'indexed' ? 'network-pill--indexed' : ''}`}>
+          <i /> <span>{!meta ? t('common.loading') : meta.source === 'demo' ? t('status.demo') : meta.source === 'indexed' ? t('status.indexed') : t('status.live')}</span>
         </span>
         <div className="language">
           <button className="language__button" onClick={() => setLanguageOpen((open) => !open)} aria-expanded={languageOpen} aria-label="Choose language">
@@ -216,5 +216,6 @@ export function StatCard({ icon, label, value, note }: { icon: ReactNode; label:
 
 export function StatusStrip({ status }: { status: Status }) {
   const { t, locale } = useI18n()
+  if (status.indexer) return <div className="status-strip"><span><i className="pulse" />{t('status.mainnet')}</span><span><Database size={12} />{t('indexer.label')} <strong>{new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 2 }).format(status.indexer.progress)}</strong></span><span>#{new Intl.NumberFormat(locale).format(status.indexer.indexedHeight)} / #{new Intl.NumberFormat(locale).format(status.indexer.targetHeight)}</span><span>{new Intl.NumberFormat(locale).format(status.indexer.indexedTransactions)} {t('indexer.transactions')}</span></div>
   return <div className="status-strip"><span><i className="pulse" />{t('status.mainnet')}</span><span>{t('stats.sync')} <strong>{new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 2 }).format(status.verificationProgress)}</strong></span><span>{status.subversion}</span></div>
 }

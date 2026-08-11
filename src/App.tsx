@@ -29,7 +29,7 @@ function HomePage({ status }: { status: Status | null }) {
     </section>
     <main className="shell home-main">
       <div className="stats-grid">
-        <StatCard icon={<Box />} label={t('stats.height')} value={status ? `#${new Intl.NumberFormat(locale).format(status.blocks)}` : '—'} note={status ? formatAge(Math.floor(Date.now() / 1000 - status.minutesSinceLastBlock * 60), locale) : undefined} />
+        <StatCard icon={<Box />} label={t('stats.height')} value={status ? `#${new Intl.NumberFormat(locale).format(status.blocks)}` : '—'} note={status?.indexer && status.indexer.progress < 1 ? `${t('indexer.label')} ${new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 2 }).format(status.indexer.progress)}` : status ? formatAge(Math.floor(Date.now() / 1000 - status.minutesSinceLastBlock * 60), locale) : undefined} />
         <StatCard icon={<Pickaxe />} label={t('stats.hashrate')} value={status ? formatHashrate(status.networkHashrate, locale) : '—'} note={status ? `${t('stats.difficulty')} ${formatAmount(status.difficulty, locale, 2)}` : undefined} />
         <StatCard icon={<Activity />} label={t('stats.mempool')} value={status ? new Intl.NumberFormat(locale).format(status.mempoolTransactions) : '—'} note={status ? formatBytes(status.mempoolBytes, locale) : undefined} />
         <StatCard icon={<HardDrive />} label={t('stats.storage')} value={status ? formatBytes(status.sizeOnDisk, locale) : '—'} note={status ? `${t('stats.sync')} ${new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 2 }).format(status.verificationProgress)}` : undefined} />
@@ -146,6 +146,11 @@ function AssetPage({ name }: { name: string }) {
       { label: t('assets.units'), value: data.units }, { label: t('assets.reissuable'), value: data.reissuable ? t('common.yes') : t('common.no') },
       { label: t('assets.metadata'), value: data.hasIpfs ? (data.ipfsHash ?? 'IPFS') : t('common.no') }, { label: t('asset.created'), value: data.blockHeight ? <Link className="height-link" href={`/block/${data.blockHeight}`}>#{new Intl.NumberFormat(locale).format(data.blockHeight)}</Link> : '—' },
     ]} /></Section>
+    {data.transfers?.length ? <Section title={`${t('assets.transfers')} · ${data.transfers.length}`} className="top-gap"><div className="asset-transfer-list">{data.transfers.map((transfer) => <article key={`${transfer.txid}-${transfer.outputIndex}`}>
+      <div className="asset-transfer__amount"><span className={`transfer-type transfer-type--${transfer.type}`}>{t(`transfer.${transfer.type}`)}</span><strong>{formatAmount(transfer.amount, locale, data.units)} {data.name}</strong><small>{formatAge(transfer.time, locale)} · <Link className="height-link" href={`/block/${transfer.blockHeight}`}>#{new Intl.NumberFormat(locale).format(transfer.blockHeight)}</Link></small></div>
+      <div className="asset-transfer__flow"><span><small>{t('transfer.from')}</small>{transfer.fromAddresses[0] ? <HashValue value={transfer.fromAddresses[0]} type="address" /> : <em>—</em>}</span><ArrowRight size={18} /><span><small>{t('transfer.to')}</small>{transfer.toAddresses[0] ? <HashValue value={transfer.toAddresses[0]} type="address" /> : <em>—</em>}</span></div>
+      <Link className="asset-transfer__tx" href={`/tx/${transfer.txid}`}>{transfer.txid}</Link>
+    </article>)}</div></Section> : null}
   </main>
 }
 

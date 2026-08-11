@@ -18,7 +18,18 @@ export class RavenRpc {
   }
 
   async call(method, params = []) {
+    const [result] = await this.batch([{ method, params }])
+    return result
+  }
+
+  async batch(calls) {
     let response
+    const requests = calls.map((call, index) => ({
+      jsonrpc: '1.0',
+      id: `raven-explorer-${index}`,
+      method: call.method,
+      params: call.params ?? [],
+    }))
     try {
       response = await fetch(this.url, {
         method: 'POST',
@@ -26,7 +37,7 @@ export class RavenRpc {
           'content-type': 'application/json',
           authorization: `Basic ${Buffer.from(`${this.user}:${this.password}`).toString('base64')}`,
         },
-        body: JSON.stringify({ jsonrpc: '1.0', id: 'raven-scout', method, params }),
+        body: JSON.stringify(requests.length === 1 ? requests[0] : requests),
         signal: AbortSignal.timeout(this.timeout),
       })
     } catch (error) {
@@ -35,8 +46,14 @@ export class RavenRpc {
 
     if (!response.ok) throw new RpcError(`Ravencoin RPC returned HTTP ${response.status}`, response.status)
     const payload = await response.json()
-    if (payload.error) throw new RpcError(payload.error.message ?? 'Ravencoin RPC error', payload.error.code)
-    return payload.result
+    const responses = Array.isArray(payload) ? payload : [payload]
+    const byId = new Map(responses.map((item) => [item.id, item]))
+    return requests.map((request) => {
+      const item = byId.get(request.id)
+      if (!item) throw new RpcError(`Ravencoin RPC omitted response ${request.id}`)
+      if (item.error) throw new RpcError(item.error.message ?? 'Ravencoin RPC error', item.error.code)
+      return item.result
+    })
   }
 }
 
