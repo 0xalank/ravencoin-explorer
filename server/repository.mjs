@@ -136,10 +136,14 @@ export async function getIndexedTransactions(pool, limit = 12) {
 
 export async function getIndexedNetworkStats(pool) {
   const [{ rows }, { rows: historyRows }] = await Promise.all([pool.query(`
-    WITH recent_blocks AS MATERIALIZED (
-      SELECT b.height, b.time, b.size, b.tx_count FROM blocks b CROSS JOIN sync_state s
-      WHERE s.id = 'ravencoin-mainnet' AND b.height <= s.best_height
-        AND b.time >= (SELECT max(x.time) - interval '24 hours' FROM blocks x WHERE x.height <= s.best_height)
+    WITH tip AS MATERIALIZED (
+      SELECT s.best_height, b.time AS tip_time
+      FROM sync_state s JOIN blocks b ON b.height = s.best_height
+      WHERE s.id = 'ravencoin-mainnet'
+    ), recent_blocks AS MATERIALIZED (
+      SELECT b.height, b.time, b.size, b.tx_count
+      FROM blocks b CROSS JOIN tip t
+      WHERE b.height <= t.best_height AND b.time >= t.tip_time - interval '24 hours'
     ), rollup AS (
       SELECT min(height) AS start_height, max(height) AS end_height,
         min(time) AS window_start, max(time) AS window_end,
@@ -147,37 +151,47 @@ export async function getIndexedNetworkStats(pool) {
         COALESCE(avg(size), 0) AS average_block_size,
         COALESCE(avg(tx_count), 0) AS average_transactions_per_block
       FROM recent_blocks
+    ), recent_address_transactions AS MATERIALIZED (
+      SELECT a.address
+      FROM address_transactions a CROSS JOIN rollup r
+      WHERE a.block_height BETWEEN r.start_height AND r.end_height
     )
     SELECT r.*,
       EXTRACT(EPOCH FROM (r.window_end - r.window_start)) / NULLIF(r.window_blocks - 1, 0) AS average_block_time_seconds,
       r.window_transactions / NULLIF(EXTRACT(EPOCH FROM (r.window_end - r.window_start)), 0) AS transactions_per_second,
-      (SELECT count(DISTINCT address) FROM address_transactions WHERE block_height >= r.start_height) AS active_addresses,
+      (SELECT count(DISTINCT address) FROM recent_address_transactions) AS active_addresses,
       (SELECT COALESCE(avg(total_output_rvn), 0) FROM transactions WHERE block_height BETWEEN r.start_height AND r.end_height AND tx_index = 0) AS average_block_reward,
       (SELECT COALESCE(sum(fee_rvn), 0) FROM transactions WHERE block_height BETWEEN r.start_height AND r.end_height) AS total_fees,
       (SELECT COALESCE(sum(total_output_rvn), 0) FROM transactions WHERE block_height BETWEEN r.start_height AND r.end_height) AS output_volume,
-      (SELECT count(*) FROM transactions WHERE block_height <= r.end_height) AS total_transactions,
-      (SELECT count(*) FROM address_balances WHERE asset_name = 'RVN') AS tracked_addresses,
+      (SELECT COALESCE(sum(tx_count), 0) FROM blocks WHERE height <= r.end_height) AS total_transactions,
+      (SELECT count(*) FROM address_balances WHERE asset_name = 'RVN' AND balance > 0) AS tracked_addresses,
       (SELECT count(*) FROM assets) AS total_assets
     FROM rollup r
   `), pool.query(`
-    WITH bounds AS (
-      SELECT date_trunc('hour', max(b.time)) AS end_hour, s.best_height
-      FROM blocks b CROSS JOIN sync_state s WHERE s.id = 'ravencoin-mainnet' AND b.height <= s.best_height
-      GROUP BY s.best_height
+    WITH bounds AS MATERIALIZED (
+      SELECT date_trunc('hour', b.time) AS end_hour, s.best_height
+      FROM sync_state s JOIN blocks b ON b.height = s.best_height
+      WHERE s.id = 'ravencoin-mainnet'
     ), hours AS (
       SELECT generate_series(end_hour - interval '23 hours', end_hour, interval '1 hour') AS hour
       FROM bounds WHERE end_hour IS NOT NULL
     ), recent_blocks AS MATERIALIZED (
-      SELECT height, date_trunc('hour', time) AS hour, tx_count, difficulty
-      FROM blocks WHERE height <= (SELECT best_height FROM bounds)
-        AND time >= (SELECT end_hour - interval '23 hours' FROM bounds)
+      SELECT b.height, date_trunc('hour', b.time) AS hour, b.tx_count, b.difficulty
+      FROM blocks b CROSS JOIN bounds x
+      WHERE b.height <= x.best_height AND b.time >= x.end_hour - interval '23 hours'
+    ), recent_address_bounds AS (
+      SELECT min(height) AS start_height, max(height) AS end_height FROM recent_blocks
+    ), recent_address_transactions AS MATERIALIZED (
+      SELECT a.block_height, a.address
+      FROM address_transactions a CROSS JOIN recent_address_bounds r
+      WHERE a.block_height BETWEEN r.start_height AND r.end_height
     ), block_activity AS (
       SELECT hour, count(*) AS blocks, COALESCE(sum(tx_count), 0) AS transactions,
         COALESCE(avg(difficulty), 0) AS difficulty
       FROM recent_blocks GROUP BY hour
     ), address_activity AS (
       SELECT b.hour, count(DISTINCT a.address) AS active_addresses
-      FROM recent_blocks b JOIN address_transactions a ON a.block_height = b.height
+      FROM recent_blocks b JOIN recent_address_transactions a ON a.block_height = b.height
       GROUP BY b.hour
     )
     SELECT h.hour, COALESCE(b.blocks, 0) AS blocks,
