@@ -87,15 +87,17 @@ export async function migrate(pool = getPool()) {
   }
 }
 
-export async function databaseHealth(pool = getPool()) {
+async function readDatabaseState(pool, includeCounts) {
   const started = performance.now()
-  const { rows } = await pool.query(`
-    SELECT s.*, pg_database_size(current_database()) AS database_bytes,
+  const countColumns = includeCounts ? `,
+      pg_database_size(current_database()) AS database_bytes,
       GREATEST(s.best_height + 1, 0) AS indexed_blocks,
       GREATEST(s.raw_height + 1, 0) AS staged_blocks,
       (SELECT count(*) FROM transactions WHERE block_height <= s.best_height) AS indexed_transactions,
       (SELECT count(*) FROM transactions) AS staged_transactions,
-      (SELECT count(*) FROM assets) AS indexed_assets,
+      (SELECT count(*) FROM assets) AS indexed_assets` : ''
+  const { rows } = await pool.query(`
+    SELECT s.*${countColumns},
       EXISTS (
         SELECT 1 FROM pg_stat_activity a
         WHERE a.datname = current_database() AND a.pid <> pg_backend_pid()
@@ -106,6 +108,14 @@ export async function databaseHealth(pool = getPool()) {
   `, [process.env.INDEXER_SERVICE_NAME ?? 'ravencoin-indexer'])
   const database = rows[0]
   return { ...database, ...assessIndexerHealth(database), latencyMs: Math.round(performance.now() - started) }
+}
+
+export async function databaseReadiness(pool = getPool()) {
+  return readDatabaseState(pool, false)
+}
+
+export async function databaseHealth(pool = getPool()) {
+  return readDatabaseState(pool, true)
 }
 
 export async function closePool() {

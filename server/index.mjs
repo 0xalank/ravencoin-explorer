@@ -2,7 +2,7 @@ import 'dotenv/config'
 import express from 'express'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { assessIndexerHealth, closePool, databaseConfigured, databaseHealth, getPool, migrate } from './db.mjs'
+import { assessIndexerHealth, closePool, databaseConfigured, databaseReadiness, getPool, migrate } from './db.mjs'
 import {
   DEMO_ADDRESS,
   DEMO_HEIGHT,
@@ -135,7 +135,7 @@ export function createApp(options = {}) {
     try {
       const [chain, database] = await Promise.all([
         rpc.call('getblockchaininfo'),
-        useDatabase ? databaseHealth(pool) : Promise.resolve(null),
+        useDatabase ? databaseReadiness(pool) : Promise.resolve(null),
       ])
       const health = buildHealthPayload(chain, database)
       response.status(health.healthy ? 200 : 503).json(health.body)

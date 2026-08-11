@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { assessIndexerHealth, migrate } from './db.mjs'
+import { assessIndexerHealth, databaseHealth, databaseReadiness, migrate } from './db.mjs'
 
 const now = new Date('2026-08-11T18:00:00.000Z')
 
@@ -74,4 +74,26 @@ test('migration failures still unlock and release the migration client', async (
   await assert.rejects(migrate({ async connect() { return client } }), (error) => error === rootError)
   assert.equal(queries.at(-1).includes('pg_advisory_unlock'), true)
   assert.equal(released, true)
+})
+
+test('database readiness avoids history-wide counts used by full status', async () => {
+  const queries = []
+  const pool = { async query(sql) {
+    queries.push(sql)
+    return { rows: [{
+      status: 'syncing', best_height: 100, raw_height: 110, target_height: 200,
+      indexed_at: new Date(), raw_indexed_at: new Date(), updated_at: new Date(),
+      indexer_active: false,
+    }] }
+  } }
+  const readiness = await databaseReadiness(pool)
+  assert.equal(readiness.best_height, 100)
+  assert.equal(readiness.stale, false)
+  assert.equal(/count\s*\(/i.test(queries[0]), false)
+  assert.equal(queries[0].includes('pg_database_size'), false)
+  assert.equal(queries[0].includes('pg_stat_activity'), true)
+
+  await databaseHealth(pool)
+  assert.equal(/count\s*\(/i.test(queries[1]), true)
+  assert.equal(queries[1].includes('pg_database_size'), true)
 })
