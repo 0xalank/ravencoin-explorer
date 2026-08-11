@@ -28,7 +28,7 @@ export function RavenMark({ compact = false }: { compact?: boolean }) {
   const { t } = useI18n()
   return <div className={`brand ${compact ? 'brand--compact' : ''}`}>
     <span className="brand__mark" aria-hidden="true">
-      <img src="/ravencoin-community-explorer-mark.svg" alt="" />
+      <RavenGlyph />
     </span>
     <span className="brand__text"><strong>Ravencoin</strong>{!compact && <small>{t('brand.subtitle')}</small>}</span>
   </div>
@@ -49,7 +49,7 @@ export function Header({ meta }: { meta: ApiMeta | null }) {
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     const saved = localStorage.getItem('rvn-explorer-theme')
     if (saved === 'dark' || saved === 'light') return saved
-    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+    return 'dark'
   })
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -93,7 +93,7 @@ export function Header({ meta }: { meta: ApiMeta | null }) {
         <nav className={`nav ${menuOpen ? 'nav--open' : ''}`} aria-label="Primary navigation">
           {nav.map(([href, key]) => <Link key={href} href={href} className={path === href || (href !== '/' && path.startsWith(`${href}/`)) ? 'active' : ''} onClick={() => setMenuOpen(false)}>{t(key)}</Link>)}
         </nav>
-        <div className="protocol-strip" aria-label="Ravencoin protocol summary"><span>KAWPOW</span><i />60s BLOCKS<i />21B MAX SUPPLY<i />ASSET LAYER</div>
+        {path !== '/' && <div className="header-search"><SearchBox /></div>}
       </div>
     </div>
   </header>
@@ -151,8 +151,6 @@ export function Footer() {
       <div className="footer__meta"><span>{t('footer.readOnly')}</span><span><a href="https://soap.qu.ai" target="_blank" rel="noreferrer">SOAP · Quai merge mining</a></span><span>{t('footer.built')} <a href="https://dominantstrategies.io" target="_blank" rel="noreferrer">Dominant Strategies</a></span><span>© {new Date().getFullYear()} Ravencoin Community Explorer</span></div>
   </div></footer>
 }
-
-export function PageSearch() { return <div className="page-search shell"><SearchBox /></div> }
 
 export function PageHeader({ eyebrow, title, subtitle, children }: { eyebrow?: string; title: ReactNode; subtitle?: ReactNode; children?: ReactNode }) {
   return <div className="page-heading">

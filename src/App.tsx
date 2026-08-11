@@ -7,7 +7,7 @@ import {
 import {
   BlockTable, CopyButton, DemoBanner, DetailGrid, EmptyState, ErrorState, Footer, formatAge,
   formatAmount, formatBytes, formatDate, formatHashrate, HashValue, Header, LoadingState, PageHeader,
-  PageSearch, QuaiMark, RavenCoinMark, RavenGlyph, SearchBox, StatCard, StatusStrip, TransactionRows,
+  QuaiMark, RavenCoinMark, RavenGlyph, SearchBox, StatCard, StatusStrip, TransactionRows,
 } from './components'
 import { useApi } from './lib/api'
 import { useI18n } from './lib/i18n'
@@ -150,11 +150,11 @@ function AddressesPage() {
   const number = (value: number, maximumFractionDigits = 0) => new Intl.NumberFormat(locale, { maximumFractionDigits }).format(value)
   const shownStart = data?.items.length ? page * limit + 1 : 0
   const shownEnd = data ? page * limit + data.items.length : 0
-  return <main className="shell page technical-page"><PageHeader eyebrow="RVN · INDEXED BALANCES" title={t('addresses.title')} subtitle={t('addresses.subtitle')} />
+  return <main className="shell page technical-page"><PageHeader eyebrow="RVN · ADDRESSES" title={t('addresses.title')} subtitle={t('addresses.subtitle')} />
     {result.loading && !data ? <LoadingState /> : result.error ? <ErrorState error={result.error} retry={result.refetch} /> : data && <>
       <div className="address-summary-grid">
         <MetricTile icon={<WalletCards />} label={t('addresses.positive')} value={number(data.total)} />
-        <MetricTile icon={<Coins />} label={t('addresses.balance')} value={`${number(data.totalBalance, 2)} RVN`} detail={t('addresses.indexed')} />
+        <MetricTile icon={<Coins />} label={t('addresses.balance')} value={`${number(data.totalBalance, 2)} RVN`} />
         <MetricTile icon={<Landmark />} label={t('addresses.topBalance')} value={data.items[0] ? `${number(data.items[0].balance, 2)} RVN` : '—'} />
       </div>
       <Section title={t('addresses.distribution')} className="top-gap">
@@ -350,7 +350,6 @@ function Route({ path, status }: { path: string; status: Status | null }) {
 export default function App() {
   const path = usePath()
   const status = useApi<Status>('/api/status', 30_000)
-  const isHome = path === '/'
   const memoStatus = useMemo(() => status.data, [status.data])
-  return <div className="app"><Header meta={status.meta} />{status.meta?.source === 'demo' && <DemoBanner />}{!isHome && <PageSearch />}<Route path={path} status={memoStatus} /><Footer /></div>
+  return <div className="app"><Header meta={status.meta} />{status.meta?.source === 'demo' && <DemoBanner />}<Route path={path} status={memoStatus} /><Footer /></div>
 }

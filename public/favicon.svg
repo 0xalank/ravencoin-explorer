@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <polygon points="62,243 101,68 124,200" fill="#394080"/>
+  <polygon points="62,243 124,200 163,201" fill="#394080"/>
+  <polygon points="101,68 123,34 142,40" fill="#343f83"/>
+  <polygon points="101,68 142,40 178,76" fill="#f79534"/>
+  <polygon points="101,68 124,200 163,201 178,76" fill="#f04f3b"/>
+  <polygon points="163,201 178,76 183,78" fill="#303d83"/>
+  <polygon points="123,34 143,16 165,18 142,40" fill="#f04f3b"/>
+  <polygon points="143,16 165,18 175,38 142,40" fill="#f79534"/>
+  <polygon points="165,18 175,38 203,36" fill="#f79534"/>
+  <polygon points="175,38 178,48 203,36" fill="#e9862d"/>
+</svg>

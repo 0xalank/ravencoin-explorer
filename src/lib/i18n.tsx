@@ -223,6 +223,48 @@ Object.assign(es, {
   'address.overview': 'Resumen de dirección', 'address.holdings': 'Saldos y salidas no gastadas',
 })
 
+Object.assign(en, {
+  'indexer.transactions': 'transactions', 'about.body': 'Blocks, transactions, addresses, and assets from Ravencoin Core.',
+  'stats.subtitle': 'Mining, chain, transaction, and address telemetry from the Ravencoin network.',
+  'stats.activity': 'Chain activity', 'stats.rollingWindow': '24-hour window', 'stats.totalTransactions': 'Transactions',
+  'stats.trackedAddresses': 'Addresses', 'stats.windowNote': 'Activity window:', 'stats.summary24': '24-hour summary',
+  'stats.indexed24h': '24-hour window', 'stats.circulating': 'Circulating supply', 'stats.indexedSeries': '24-hour activity',
+  'stats.chainData': 'Chain data', 'addresses.subtitle': 'RVN balances, distribution, and activity.',
+  'addresses.positive': 'Addresses', 'addresses.balance': 'RVN balance', 'addresses.note': 'Balances and rankings update as the explorer syncs.',
+})
+Object.assign(ko, {
+  'indexer.transactions': '트랜잭션', 'about.body': 'Ravencoin Core의 블록, 트랜잭션, 주소 및 자산 데이터입니다.',
+  'stats.subtitle': 'Ravencoin 네트워크의 채굴, 체인, 트랜잭션 및 주소 지표입니다.',
+  'stats.activity': '체인 활동', 'stats.rollingWindow': '24시간 구간', 'stats.totalTransactions': '트랜잭션',
+  'stats.trackedAddresses': '주소', 'stats.windowNote': '활동 구간:', 'stats.summary24': '24시간 요약',
+  'stats.indexed24h': '24시간 구간', 'stats.circulating': '유통량', 'stats.indexedSeries': '24시간 활동',
+  'stats.chainData': '체인 데이터', 'addresses.subtitle': 'RVN 잔액, 분포 및 활동입니다.',
+  'addresses.positive': '주소', 'addresses.balance': 'RVN 잔액', 'addresses.note': '탐색기가 동기화되는 동안 잔액과 순위가 갱신됩니다.',
+})
+Object.assign(zh, {
+  'indexer.transactions': '笔交易', 'about.body': '来自 Ravencoin Core 的区块、交易、地址和资产数据。',
+  'stats.subtitle': 'Ravencoin 网络的挖矿、链、交易和地址指标。',
+  'stats.activity': '链上活动', 'stats.rollingWindow': '24 小时窗口', 'stats.totalTransactions': '交易',
+  'stats.trackedAddresses': '地址', 'stats.windowNote': '活动窗口：', 'stats.summary24': '24 小时摘要',
+  'stats.indexed24h': '24 小时窗口', 'stats.circulating': '流通量', 'stats.indexedSeries': '24 小时活动',
+  'stats.chainData': '链上数据', 'addresses.subtitle': 'RVN 余额、分布和活动。',
+  'addresses.positive': '地址', 'addresses.balance': 'RVN 余额', 'addresses.note': '浏览器同步期间，余额和排名会持续更新。',
+})
+Object.assign(ja, {
+  'indexer.transactions': '取引', 'stats.subtitle': 'Ravencoin ネットワークのマイニング、チェーン、取引、アドレス指標。',
+  'stats.rollingWindow': '24時間', 'stats.totalTransactions': '取引', 'stats.trackedAddresses': 'アドレス',
+  'stats.windowNote': '集計範囲：', 'stats.indexed24h': '24時間', 'stats.circulating': '流通量',
+  'stats.indexedSeries': '24時間のアクティビティ', 'stats.chainData': 'チェーンデータ',
+  'addresses.subtitle': 'RVN残高、分布、アクティビティ。', 'addresses.positive': 'アドレス', 'addresses.balance': 'RVN残高',
+})
+Object.assign(es, {
+  'indexer.transactions': 'transacciones', 'stats.subtitle': 'Métricas de minería, cadena, transacciones y direcciones de Ravencoin.',
+  'stats.rollingWindow': 'Ventana de 24 horas', 'stats.totalTransactions': 'Transacciones', 'stats.trackedAddresses': 'Direcciones',
+  'stats.windowNote': 'Ventana de actividad:', 'stats.indexed24h': 'Ventana de 24 horas', 'stats.circulating': 'Suministro circulante',
+  'stats.indexedSeries': 'Actividad de 24 horas', 'stats.chainData': 'Datos de cadena',
+  'addresses.subtitle': 'Saldos, distribución y actividad de RVN.', 'addresses.positive': 'Direcciones', 'addresses.balance': 'Saldo RVN',
+})
+
 const dictionaries: Record<Locale, Record<string, string>> = { en, ko, 'zh-CN': zh, ja, es }
 
 interface I18nValue { locale: Locale; setLocale: (locale: Locale) => void; t: (key: string, values?: Record<string, string | number>) => string }
