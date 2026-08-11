@@ -4,7 +4,7 @@ const STATE_ID = 'ravencoin-mainnet'
 const asJson = (rows) => JSON.stringify(rows)
 
 function indexerWorkMem() {
-  const value = (process.env.INDEXER_WORK_MEM || '256MB').trim()
+  const value = (process.env.INDEXER_WORK_MEM || '512MB').trim()
   if (!/^\d+(?:kB|MB|GB)$/i.test(value)) throw new Error(`Invalid INDEXER_WORK_MEM value: ${value}`)
   return value
 }

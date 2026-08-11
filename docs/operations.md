@@ -54,7 +54,7 @@ MONITOR_MAX_TEMP_BYTES_PER_INTERVAL=1073741824
 MONITOR_STATE_FILE=/app/ops-state/monitor.json
 ```
 
-The production five-minute baseline after the batch-local aggregation change is zero, so the example alerts above 1 GiB per interval. Set `MONITOR_MAX_TEMP_BYTES_PER_INTERVAL=0` only when intentionally measuring a new baseline. `MONITOR_DISK_PATH=/` measures the container's backing filesystem; add a host-level filesystem alert if `POSTGRES_DATA_DIR` is on a separate mount. Connect cron's nonzero exit to cron mail, a systemd `OnFailure` unit, or an external monitoring agent—a log file alone is not an alert.
+With `INDEXER_WORK_MEM=512MB`, the asset-era production sample wrote about 13 MiB per 500-block batch, comfortably below the example 1 GiB/five-minute alert. Re-baseline after changing batch size, memory, or analytics queries; set `MONITOR_MAX_TEMP_BYTES_PER_INTERVAL=0` only while intentionally measuring. `MONITOR_DISK_PATH=/` measures the container's backing filesystem; add a host-level filesystem alert if `POSTGRES_DATA_DIR` is on a separate mount. Connect cron's nonzero exit to cron mail, a systemd `OnFailure` unit, or an external monitoring agent—a log file alone is not an alert.
 
 ## PostgreSQL snapshots
 
