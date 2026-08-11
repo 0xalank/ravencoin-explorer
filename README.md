@@ -16,6 +16,8 @@ Checkpointed indexer ─────► PostgreSQL
                          Read-only API + UI
 ```
 
+The interface follows a compact block-explorer layout with latest blocks and transactions, native asset discovery, address balances, and localized navigation. It also links to the [Quai SOAP dashboard](https://soap.qu.ai) and explains how compatible Ravencoin proof of work can participate in Quai merge mining without changing Ravencoin consensus.
+
 The indexer reads verbose blocks in bounded batches and commits each batch transactionally. PostgreSQL stores:
 
 - Canonical blocks and transactions
@@ -43,6 +45,18 @@ docker compose logs -f indexer explorer
 Open `http://127.0.0.1:3000`. PostgreSQL is bound to loopback by default. The indexer immediately imports the asset directory, then indexes blocks from genesis. The UI exposes index progress and never reports the database as fully synchronized until it reaches the node tip.
 
 The Compose stack contains PostgreSQL, the indexer, and the explorer API/UI. Ravencoin Core remains external so an existing node and chain-state volume can be used without copying or rebuilding it.
+
+### Self-contained VM deployment
+
+`compose.remote.yaml` adds a wallet-disabled Ravencoin daemon built from a pinned Dominant Strategies source revision. It uses host bind mounts for chain and PostgreSQL data, publishes only the explorer UI and Ravencoin P2P port, and keeps RPC/PostgreSQL private to the Compose network.
+
+```bash
+cp .env.remote.example .env
+# Set unique PostgreSQL and RPC passwords, then create raven.conf with matching RPC credentials.
+docker compose --env-file .env -f compose.remote.yaml up --build -d
+```
+
+The default public bindings are `0.0.0.0:3102` for the explorer and `0.0.0.0:8767` for Ravencoin P2P. Port `8766` and PostgreSQL are intentionally not published. A restored node snapshot must never include `wallet.dat`; this deployment compiles Core with wallet support disabled.
 
 ## Ravencoin Core configuration
 
@@ -108,6 +122,7 @@ All public endpoints are read-only and rate-limited:
 | `GET /api/health` | Node, database, and indexer readiness |
 | `GET /api/status` | Network statistics and index progress |
 | `GET /api/blocks` | Indexed blocks |
+| `GET /api/transactions` | Latest indexed transactions |
 | `GET /api/block/:heightOrHash` | Block details and transactions |
 | `GET /api/tx/:txid` | Inputs, outputs, assets, and fees |
 | `GET /api/address/:address` | Balances, assets, UTXOs, and recent history |

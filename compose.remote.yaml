@@ -1,0 +1,117 @@
+name: ravencoin-explorer
+
+x-app-environment: &app-environment
+  NODE_ENV: production
+  DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+  RAVEN_RPC_URL: http://ravend:8766
+  RAVEN_RPC_USER: ${RAVEN_RPC_USER}
+  RAVEN_RPC_PASSWORD: ${RAVEN_RPC_PASSWORD}
+  RAVEN_RPC_TIMEOUT_MS: ${RAVEN_RPC_TIMEOUT_MS:-30000}
+  EXPLORER_DATA_SOURCE: postgres
+  EXPLORER_DEMO_MODE: "false"
+
+services:
+  ravend:
+    build:
+      context: .
+      dockerfile: Dockerfile.ravencoin
+      args:
+        RAVEN_REPOSITORY: ${RAVEN_REPOSITORY:-https://github.com/dominant-strategies/Ravencoin-Public.git}
+        RAVEN_COMMIT: ${RAVEN_COMMIT:-1ecb6598e8c14487676264b3e2ed91e4cc44c6cc}
+    image: dominant-ravencoin-node:${RAVEN_IMAGE_TAG:-1ecb659}
+    restart: unless-stopped
+    stop_grace_period: 2m
+    volumes:
+      - ${RAVEN_DATA_DIR}:/data
+      - ./raven.conf:/etc/ravencoin/raven.conf:ro
+    ports:
+      - "0.0.0.0:${RAVEN_P2P_PORT:-8767}:8767"
+    healthcheck:
+      test: ["CMD-SHELL", "raven-cli -datadir=/data -conf=/etc/ravencoin/raven.conf getblockchaininfo >/dev/null"]
+      interval: 20s
+      timeout: 10s
+      retries: 30
+      start_period: 2m
+    deploy:
+      resources:
+        limits:
+          memory: 16G
+
+  postgres:
+    image: postgres:16-bookworm
+    restart: unless-stopped
+    shm_size: 4gb
+    command:
+      - postgres
+      - -c
+      - shared_buffers=4GB
+      - -c
+      - effective_cache_size=12GB
+      - -c
+      - maintenance_work_mem=1GB
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - max_wal_size=8GB
+      - -c
+      - random_page_cost=1.1
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ${POSTGRES_DATA_DIR}:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  indexer:
+    build: .
+    image: dominant-ravencoin-explorer:${EXPLORER_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    command: ["node", "server/indexer.mjs"]
+    environment:
+      <<: *app-environment
+      SERVICE_NAME: ravencoin-indexer
+      INDEXER_BATCH_SIZE: ${INDEXER_BATCH_SIZE:-100}
+      INDEXER_POLL_MS: ${INDEXER_POLL_MS:-3000}
+      INDEXER_ASSET_PAGE_SIZE: ${INDEXER_ASSET_PAGE_SIZE:-5000}
+      INDEXER_BOOTSTRAP_ASSETS: ${INDEXER_BOOTSTRAP_ASSETS:-true}
+    depends_on:
+      ravend:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 12G
+
+  explorer:
+    image: dominant-ravencoin-explorer:${EXPLORER_IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      <<: *app-environment
+      SERVICE_NAME: ravencoin-api
+      PORT: 3000
+      API_RATE_LIMIT_PER_MINUTE: ${API_RATE_LIMIT_PER_MINUTE:-300}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+    depends_on:
+      ravend:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      indexer:
+        condition: service_started
+    ports:
+      - "0.0.0.0:${EXPLORER_PORT:-3102}:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 8s
+      retries: 10
+      start_period: 1m
+

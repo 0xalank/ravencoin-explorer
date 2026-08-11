@@ -24,6 +24,7 @@ import {
   getLiveBlocks,
   getLiveStatus,
   getLiveTransaction,
+  getLiveTransactions,
 } from './rpc.mjs'
 import {
   getIndexedAddress,
@@ -33,6 +34,7 @@ import {
   getIndexedBlocks,
   getIndexedStatus,
   getIndexedTransaction,
+  getIndexedTransactions,
   searchIndexed,
 } from './repository.mjs'
 
@@ -139,6 +141,12 @@ export function createApp(options = {}) {
     (request) => useDatabase ? getIndexedBlock(pool, request.params.id) : getLiveBlock(rpc, request.params.id),
     (request) => mockBlock(request.params.id),
   ))
+  app.get('/api/transactions', withData(
+    (request) => useDatabase
+      ? getIndexedTransactions(pool, clamp(request.query.limit, 1, 30))
+      : getLiveTransactions(rpc, clamp(request.query.limit, 1, 30)),
+    (request) => mockBlocks(3).flatMap((block) => block.transactions).slice(0, clamp(request.query.limit, 1, 30)),
+    10))
   app.get('/api/tx/:txid', withData(
     (request) => useDatabase ? getIndexedTransaction(pool, request.params.txid) : getLiveTransaction(rpc, request.params.txid),
     (request) => mockTransaction(request.params.txid),

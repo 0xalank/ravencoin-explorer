@@ -14,7 +14,8 @@ const en: Record<string, string> = {
   'nav.home': 'Overview', 'nav.blocks': 'Blocks', 'nav.assets': 'Assets', 'nav.about': 'About',
   'brand.subtitle': 'Community explorer', 'status.live': 'Node online', 'status.indexed': 'Index online', 'status.demo': 'Demo data', 'status.mainnet': 'Mainnet',
   'search.placeholder': 'Search a block, transaction, address, or asset', 'search.button': 'Search', 'search.hint': 'Block height · hash · transaction · address · asset', 'search.error': 'Enter a valid explorer search.',
-  'hero.eyebrow': 'Open network · Community operated', 'hero.title1': 'See Ravencoin.', 'hero.title2': 'Clearly.', 'hero.body': 'A focused, fast view of blocks, transactions, addresses, balances, and community assets.',
+  'hero.eyebrow': 'Open network · Community operated', 'hero.title': 'Ravencoin Blockchain Explorer', 'hero.body': 'Search blocks, transactions, addresses, balances, and native Ravencoin assets.',
+  'merge.nav': 'Quai merge mining', 'merge.visit': 'Visit the Quai SOAP dashboard', 'merge.title': 'Ravencoin proof of work can do more.', 'merge.body': 'SOAP enables participating miners to reuse compatible proof of work to help secure Quai without changing Ravencoin consensus, supply, or asset rules.', 'merge.cta': 'Explore SOAP',
   'demo.title': 'Preview mode', 'demo.body': 'A local Ravencoin node is not connected, so you are viewing representative demo data.',
   'common.viewAll': 'View all', 'common.details': 'Details', 'common.copy': 'Copy', 'common.copied': 'Copied', 'common.retry': 'Try again', 'common.loading': 'Reading the chain…', 'common.yes': 'Yes', 'common.no': 'No', 'common.unknown': 'Unknown', 'common.latest': 'Latest',
   'stats.height': 'Block height', 'stats.hashrate': 'Network hashrate', 'stats.mempool': 'Mempool', 'stats.peers': 'Connected peers', 'stats.difficulty': 'Difficulty', 'stats.storage': 'Chain size', 'stats.sync': 'Sync progress', 'stats.lastBlock': 'Last block',
@@ -33,7 +34,8 @@ const en: Record<string, string> = {
 const ko: Record<string, string> = {
   'nav.home': '개요', 'nav.blocks': '블록', 'nav.assets': '자산', 'nav.about': '소개', 'brand.subtitle': '커뮤니티 탐색기', 'status.live': '노드 온라인', 'status.indexed': '인덱스 온라인', 'status.demo': '데모 데이터', 'status.mainnet': '메인넷',
   'search.placeholder': '블록, 트랜잭션, 주소 또는 자산 검색', 'search.button': '검색', 'search.hint': '블록 높이 · 해시 · 트랜잭션 · 주소 · 자산', 'search.error': '올바른 검색어를 입력하세요.',
-  'hero.eyebrow': '오픈 네트워크 · 커뮤니티 운영', 'hero.title1': 'Ravencoin을', 'hero.title2': '명확하게.', 'hero.body': '블록, 트랜잭션, 주소, 잔액 및 커뮤니티 자산을 빠르고 간결하게 확인하세요.',
+  'hero.eyebrow': '오픈 네트워크 · 커뮤니티 운영', 'hero.title': 'Ravencoin 블록체인 탐색기', 'hero.body': '블록, 트랜잭션, 주소, 잔액 및 Ravencoin 네이티브 자산을 검색하세요.',
+  'merge.nav': 'Quai 병합 채굴', 'merge.visit': 'Quai SOAP 대시보드 방문', 'merge.title': 'Ravencoin 작업증명을 더 유용하게.', 'merge.body': 'SOAP은 Ravencoin의 합의, 공급량 또는 자산 규칙을 변경하지 않고 호환되는 작업증명을 재사용하여 Quai 보안에 기여하도록 합니다.', 'merge.cta': 'SOAP 살펴보기',
   'demo.title': '미리보기 모드', 'demo.body': '로컬 Ravencoin 노드가 연결되지 않아 예시 데모 데이터를 표시합니다.', 'common.viewAll': '모두 보기', 'common.details': '상세 정보', 'common.copy': '복사', 'common.copied': '복사됨', 'common.retry': '다시 시도', 'common.loading': '체인 읽는 중…', 'common.yes': '예', 'common.no': '아니요', 'common.unknown': '알 수 없음', 'common.latest': '최신',
   'stats.height': '블록 높이', 'stats.hashrate': '네트워크 해시레이트', 'stats.mempool': '메모리풀', 'stats.peers': '연결된 피어', 'stats.difficulty': '난이도', 'stats.storage': '체인 크기', 'stats.sync': '동기화 진행률', 'stats.lastBlock': '마지막 블록',
   'blocks.latest': '최신 블록', 'blocks.title': '블록', 'blocks.subtitle': 'Ravencoin 네트워크에서 최근 확정된 블록입니다.', 'blocks.previous': '새 블록', 'blocks.next': '이전 블록', 'blocks.empty': '블록이 없습니다.',
@@ -49,7 +51,8 @@ const ko: Record<string, string> = {
 
 const zh: Record<string, string> = {
   'nav.home': '概览', 'nav.blocks': '区块', 'nav.assets': '资产', 'nav.about': '关于', 'brand.subtitle': '社区浏览器', 'status.live': '节点在线', 'status.indexed': '索引在线', 'status.demo': '演示数据', 'status.mainnet': '主网',
-  'search.placeholder': '搜索区块、交易、地址或资产', 'search.button': '搜索', 'search.hint': '区块高度 · 哈希 · 交易 · 地址 · 资产', 'search.error': '请输入有效的搜索内容。', 'hero.eyebrow': '开放网络 · 社区运营', 'hero.title1': '清晰查看', 'hero.title2': 'Ravencoin。', 'hero.body': '快速、专注地查看区块、交易、地址、余额和社区资产。',
+  'search.placeholder': '搜索区块、交易、地址或资产', 'search.button': '搜索', 'search.hint': '区块高度 · 哈希 · 交易 · 地址 · 资产', 'search.error': '请输入有效的搜索内容。', 'hero.eyebrow': '开放网络 · 社区运营', 'hero.title': 'Ravencoin 区块链浏览器', 'hero.body': '搜索区块、交易、地址、余额和 Ravencoin 原生资产。',
+  'merge.nav': 'Quai 合并挖矿', 'merge.visit': '访问 Quai SOAP 仪表板', 'merge.title': '让 Ravencoin 工作量证明发挥更多作用。', 'merge.body': 'SOAP 允许参与矿工复用兼容的工作量证明来帮助保护 Quai，同时不改变 Ravencoin 的共识、供应量或资产规则。', 'merge.cta': '探索 SOAP',
   'demo.title': '预览模式', 'demo.body': '尚未连接本地 Ravencoin 节点，当前显示示例演示数据。', 'common.viewAll': '查看全部', 'common.details': '详情', 'common.copy': '复制', 'common.copied': '已复制', 'common.retry': '重试', 'common.loading': '正在读取链上数据…', 'common.yes': '是', 'common.no': '否', 'common.unknown': '未知', 'common.latest': '最新',
   'stats.height': '区块高度', 'stats.hashrate': '网络算力', 'stats.mempool': '内存池', 'stats.peers': '已连接节点', 'stats.difficulty': '难度', 'stats.storage': '链大小', 'stats.sync': '同步进度', 'stats.lastBlock': '最新区块', 'blocks.latest': '最新区块', 'blocks.title': '区块', 'blocks.subtitle': 'Ravencoin 网络最新确认的区块。', 'blocks.previous': '更新区块', 'blocks.next': '更早区块', 'blocks.empty': '未找到区块。',
   'tx.latest': '最近交易', 'tx.title': '交易', 'tx.inputs': '输入', 'tx.outputs': '输出', 'tx.coinbase': '新挖出的币', 'tx.noAddress': '未解析脚本', 'tx.total': '总输出', 'tx.fee': '手续费', 'block.title': '区块', 'block.transactions': '此区块中的交易', 'block.previous': '上一区块', 'block.next': '下一区块',
@@ -67,6 +70,28 @@ const ja: Record<string, string> = {
 const es: Record<string, string> = {
   'nav.home': 'Resumen', 'nav.blocks': 'Bloques', 'nav.assets': 'Activos', 'nav.about': 'Acerca de', 'brand.subtitle': 'Explorador comunitario', 'status.live': 'Nodo conectado', 'status.demo': 'Datos de muestra', 'status.mainnet': 'Red principal', 'search.placeholder': 'Busca un bloque, transacción, dirección o activo', 'search.button': 'Buscar', 'search.hint': 'Altura · hash · transacción · dirección · activo', 'hero.eyebrow': 'Red abierta · Operado por la comunidad', 'hero.title1': 'Ravencoin.', 'hero.title2': 'Con claridad.', 'hero.body': 'Una vista rápida de bloques, transacciones, direcciones, saldos y activos.', 'demo.title': 'Modo de vista previa', 'demo.body': 'No hay un nodo local conectado; se muestran datos de demostración.', 'common.viewAll': 'Ver todo', 'common.details': 'Detalles', 'common.copy': 'Copiar', 'common.copied': 'Copiado', 'common.retry': 'Reintentar', 'common.loading': 'Leyendo la cadena…', 'common.yes': 'Sí', 'common.no': 'No', 'common.unknown': 'Desconocido', 'common.latest': 'Reciente', 'stats.height': 'Altura del bloque', 'stats.hashrate': 'Tasa de hash', 'stats.mempool': 'Mempool', 'stats.peers': 'Pares conectados', 'blocks.latest': 'Bloques recientes', 'blocks.title': 'Bloques', 'blocks.subtitle': 'Los bloques confirmados más recientes de Ravencoin.', 'tx.title': 'Transacción', 'tx.inputs': 'Entradas', 'tx.outputs': 'Salidas', 'tx.coinbase': 'Monedas recién minadas', 'tx.total': 'Salida total', 'tx.fee': 'Comisión', 'block.title': 'Bloque', 'block.transactions': 'Transacciones del bloque', 'address.title': 'Dirección', 'address.balance': 'Saldo actual', 'address.received': 'Total recibido', 'address.sent': 'Total enviado', 'address.assets': 'Saldos de activos', 'address.utxos': 'Salidas no gastadas', 'address.transactions': 'Transacciones recientes', 'assets.title': 'Activos de Ravencoin', 'assets.subtitle': 'Explora tokens emitidos y transferidos directamente en Ravencoin.', 'assets.search': 'Filtrar por nombre', 'assets.supply': 'Suministro', 'assets.units': 'Decimales', 'assets.reissuable': 'Reemitible', 'assets.metadata': 'Metadatos', 'assets.noResults': 'No hay activos coincidentes.', 'asset.title': 'Activo', 'field.height': 'Altura', 'field.hash': 'Hash', 'field.age': 'Antigüedad', 'field.time': 'Fecha', 'field.transactions': 'Transacciones', 'field.size': 'Tamaño', 'field.confirmations': 'Confirmaciones', 'field.version': 'Versión', 'field.merkle': 'Raíz Merkle', 'field.nonce': 'Nonce', 'field.txid': 'ID de transacción', 'field.block': 'Bloque', 'field.value': 'Valor', 'field.type': 'Tipo', 'about.title': 'Creado para la comunidad Ravencoin.', 'about.body': 'Raven Scout es una vista ligera y de solo lectura de la cadena pública de Ravencoin.', 'about.independent': 'Independiente', 'about.independentBody': 'Este explorador es comunitario y no está afiliado con el proyecto ni la fundación Ravencoin.', 'about.private': 'Privacidad primero', 'about.privateBody': 'Las búsquedas son de solo lectura y no se conecta ninguna cartera.', 'about.open': 'Simple y abierto', 'about.openBody': 'Una API pequeña y el modo demo facilitan su operación.', 'error.title': 'No se pudieron leer los datos', 'error.notFound': 'Esta página no existe.', 'error.home': 'Volver al resumen', 'footer.built': 'Diseño y desarrollo por', 'footer.disclaimer': 'Explorador comunitario no afiliado con el equipo ni la Fundación Ravencoin.', 'footer.readOnly': 'Solo lectura · Datos de red abiertos',
 }
+
+Object.assign(ja, {
+  'hero.title': 'Ravencoin ブロックチェーンエクスプローラー',
+  'hero.body': 'ブロック、取引、アドレス、残高、Ravencoin ネイティブアセットを検索できます。',
+  'merge.nav': 'Quai マージマイニング',
+  'merge.visit': 'Quai SOAP ダッシュボードへ',
+  'merge.title': 'Ravencoin のプルーフ・オブ・ワークをさらに活用。',
+  'merge.body': 'SOAP は Ravencoin の合意・供給量・アセット規則を変えず、互換性のある作業証明を再利用して Quai の安全性にも貢献します。',
+  'merge.cta': 'SOAPを見る',
+  'tx.latest': '最近の取引',
+})
+
+Object.assign(es, {
+  'hero.title': 'Explorador de la blockchain Ravencoin',
+  'hero.body': 'Busca bloques, transacciones, direcciones, saldos y activos nativos de Ravencoin.',
+  'merge.nav': 'Minería combinada Quai',
+  'merge.visit': 'Visitar el panel SOAP de Quai',
+  'merge.title': 'La prueba de trabajo de Ravencoin puede hacer más.',
+  'merge.body': 'SOAP reutiliza trabajo compatible para ayudar a proteger Quai sin cambiar el consenso, suministro ni las reglas de activos de Ravencoin.',
+  'merge.cta': 'Explorar SOAP',
+  'tx.latest': 'Transacciones recientes',
+})
 
 const dictionaries: Record<Locale, Record<string, string>> = { en, ko, 'zh-CN': zh, ja, es }
 

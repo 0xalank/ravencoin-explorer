@@ -91,6 +91,17 @@ export async function getIndexedBlocks(pool, limit = 20, start) {
   return rows.map((row) => mapBlock(row))
 }
 
+export async function getIndexedTransactions(pool, limit = 12) {
+  const { rows } = await pool.query(`
+    SELECT t.*, (s.best_height - t.block_height + 1) AS confirmations
+    FROM transactions t CROSS JOIN sync_state s
+    WHERE s.id = 'ravencoin-mainnet'
+    ORDER BY t.block_height DESC, t.tx_index DESC
+    LIMIT $1
+  `, [limit])
+  return rows.map(mapTransaction)
+}
+
 export async function getIndexedBlock(pool, id) {
   const isHeight = /^\d+$/.test(String(id))
   const { rows } = await pool.query(`

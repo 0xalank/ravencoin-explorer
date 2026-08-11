@@ -6,7 +6,7 @@ import {
 import {
   BlockTable, CopyButton, DemoBanner, DetailGrid, EmptyState, ErrorState, Footer, formatAge,
   formatAmount, formatBytes, formatDate, formatHashrate, HashValue, Header, LoadingState, PageHeader,
-  PageSearch, RavenGlyph, SearchBox, StatCard, StatusStrip, TransactionRows,
+  PageSearch, QuaiMark, RavenGlyph, SearchBox, StatCard, StatusStrip, TransactionRows,
 } from './components'
 import { useApi } from './lib/api'
 import { useI18n } from './lib/i18n'
@@ -20,10 +20,11 @@ function Section({ title, action, children, className = '' }: { title: string; a
 function HomePage({ status }: { status: Status | null }) {
   const { t, locale } = useI18n()
   const blocks = useApi<Block[]>('/api/blocks?limit=7', 30_000)
+  const transactions = useApi<Transaction[]>('/api/transactions?limit=7', 30_000)
   const assets = useApi<Asset[]>('/api/assets?limit=5')
   return <>
     <section className="hero"><div className="hero__glow hero__glow--one" /><div className="hero__glow hero__glow--two" /><div className="hero__raven" aria-hidden="true"><RavenGlyph /></div>
-      <div className="shell hero__content"><span className="eyebrow"><i />{t('hero.eyebrow')}</span><h1>{t('hero.title1')} <em>{t('hero.title2')}</em></h1><p>{t('hero.body')}</p><SearchBox hero />
+      <div className="shell hero__content"><span className="eyebrow"><i />{t('hero.eyebrow')}</span><h1>{t('hero.title')}</h1><p>{t('hero.body')}</p><SearchBox hero />
         {status && <StatusStrip status={status} />}
       </div>
     </section>
@@ -34,14 +35,22 @@ function HomePage({ status }: { status: Status | null }) {
         <StatCard icon={<Activity />} label={t('stats.mempool')} value={status ? new Intl.NumberFormat(locale).format(status.mempoolTransactions) : '—'} note={status ? formatBytes(status.mempoolBytes, locale) : undefined} />
         <StatCard icon={<HardDrive />} label={t('stats.storage')} value={status ? formatBytes(status.sizeOnDisk, locale) : '—'} note={status ? `${t('stats.sync')} ${new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 2 }).format(status.verificationProgress)}` : undefined} />
       </div>
+      <aside className="merge-mining-card">
+        <span className="merge-mining-card__logo"><QuaiMark /></span>
+        <div><span className="merge-mining-card__eyebrow">SOAP · QUAI NETWORK</span><h2>{t('merge.title')}</h2><p>{t('merge.body')}</p></div>
+        <a href="https://soap.qu.ai" target="_blank" rel="noreferrer">{t('merge.cta')} <ArrowRight size={16} /></a>
+      </aside>
       <div className="home-grid">
         <Section title={t('blocks.latest')} action={<Link className="text-link" href="/blocks">{t('common.viewAll')} <ArrowRight size={15} /></Link>}>
           {blocks.loading && !blocks.data ? <LoadingState /> : blocks.error ? <ErrorState error={blocks.error} retry={blocks.refetch} /> : <BlockTable blocks={blocks.data ?? []} />}
         </Section>
-        <Section title={t('assets.title')} action={<Link className="text-link" href="/assets">{t('common.viewAll')} <ArrowRight size={15} /></Link>}>
-          {assets.loading && !assets.data ? <LoadingState /> : assets.error ? <ErrorState error={assets.error} /> : <div className="asset-mini-list">{assets.data?.map((asset) => <Link href={`/asset/${encodeURIComponent(asset.name)}`} key={asset.name}><span className="asset-avatar">{asset.name.slice(0, 2)}</span><span><strong>{asset.name}</strong><small>{formatAmount(asset.amount, locale, asset.units)} · {asset.units}d</small></span><ArrowRight size={16} /></Link>)}</div>}
+        <Section title={t('tx.latest')}>
+          {transactions.loading && !transactions.data ? <LoadingState /> : transactions.error ? <ErrorState error={transactions.error} retry={transactions.refetch} /> : <TransactionRows transactions={transactions.data ?? []} />}
         </Section>
       </div>
+      <Section title={t('assets.title')} className="asset-overview" action={<Link className="text-link" href="/assets">{t('common.viewAll')} <ArrowRight size={15} /></Link>}>
+        {assets.loading && !assets.data ? <LoadingState /> : assets.error ? <ErrorState error={assets.error} /> : <div className="asset-mini-list">{assets.data?.map((asset) => <Link href={`/asset/${encodeURIComponent(asset.name)}`} key={asset.name}><span className="asset-avatar">{asset.name.slice(0, 2)}</span><span><strong>{asset.name}</strong><small>{formatAmount(asset.amount, locale, asset.units)} · {asset.units}d</small></span><ArrowRight size={16} /></Link>)}</div>}
+      </Section>
     </main>
   </>
 }

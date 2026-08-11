@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { ArrowRight, Check, ChevronDown, Clipboard, Database, Globe2, Menu, Search, X } from 'lucide-react'
+import { ArrowRight, Check, ChevronDown, Clipboard, Database, ExternalLink, Globe2, Menu, Search, X } from 'lucide-react'
 import { api } from './lib/api'
 import { languages, useI18n } from './lib/i18n'
 import { Link, navigate } from './lib/router'
@@ -30,6 +30,14 @@ export function RavenMark({ compact = false }: { compact?: boolean }) {
   </div>
 }
 
+export function QuaiMark({ className = '' }: { className?: string }) {
+  return <svg className={className} viewBox="0 0 600 600" role="img" aria-label="Quai Network">
+    <circle cx="299.939" cy="301.158" r="175.549" fill="white" />
+    <path d="M360.397 299.918C360.379 283.877 353.999 268.498 342.656 257.156C331.314 245.813 315.935 239.433 299.894 239.415C294.321 239.417 288.776 240.191 283.415 241.714C270.569 245.385 259.294 253.193 251.339 263.927C243.575 274.32 239.379 286.945 239.378 299.918C239.396 315.963 245.777 331.345 257.122 342.69C268.467 354.035 283.85 360.417 299.894 360.434C305.028 360.418 310.138 359.749 315.103 358.443L337.717 391.975L370.233 370.338L347.7 336.925C355.939 326.35 360.407 313.324 360.397 299.918Z" fill="#E22901" />
+    <path d="M300 100C246.957 100 196.086 121.071 158.579 158.579C121.071 196.086 100 246.957 100 300C100 353.043 121.071 403.914 158.579 441.421C177.15 459.993 199.198 474.725 223.463 484.776C247.728 494.827 273.736 500 300 500C353.043 500 403.914 478.929 441.421 441.421C478.929 403.914 500 353.043 500 300C500 246.957 478.929 196.086 441.421 158.579C403.914 121.071 353.043 100 300 100ZM392.387 403.227L360.093 425.013L337.707 391.84C325.743 396.753 312.933 399.276 300 399.267C273.668 399.267 248.414 388.81 229.789 370.195C211.164 351.581 200.694 326.332 200.68 300C200.655 274.078 210.805 249.182 228.947 230.667C238.101 221.274 249.021 213.784 261.08 208.627C273.385 203.385 286.625 200.691 300 200.707C326.337 200.707 351.595 211.167 370.22 229.787C388.846 248.408 399.313 273.663 399.32 300C399.338 313.064 396.77 326.003 391.763 338.07C386.756 350.137 379.409 361.093 370.147 370.307L392.387 403.227Z" fill="#E22901" />
+  </svg>
+}
+
 export function Header({ meta }: { meta: ApiMeta | null }) {
   const { t, locale, setLocale } = useI18n()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -46,6 +54,9 @@ export function Header({ meta }: { meta: ApiMeta | null }) {
         {nav.map(([href, key]) => <Link key={href} href={href} className={path === href ? 'active' : ''} onClick={() => setMenuOpen(false)}>{t(key)}</Link>)}
       </nav>
       <div className="header__actions">
+        <a className="quai-nav-link" href="https://soap.qu.ai" target="_blank" rel="noreferrer" title={t('merge.visit')}>
+          <QuaiMark /><span>{t('merge.nav')}</span><ExternalLink size={12} />
+        </a>
         <span className={`network-pill ${!meta ? 'network-pill--loading' : meta.source === 'demo' ? 'network-pill--demo' : meta.source === 'indexed' ? 'network-pill--indexed' : ''}`}>
           <i /> <span>{!meta ? t('common.loading') : meta.source === 'demo' ? t('status.demo') : meta.source === 'indexed' ? t('status.indexed') : t('status.live')}</span>
         </span>
@@ -114,7 +125,7 @@ export function Footer() {
   const { t } = useI18n()
   return <footer className="footer"><div className="shell footer__grid">
     <div><RavenMark /><p>{t('footer.disclaimer')}</p></div>
-      <div className="footer__meta"><span>{t('footer.readOnly')}</span><span>{t('footer.built')} <a href="https://dominantstrategies.io" target="_blank" rel="noreferrer">Dominant Strategies</a></span><span>© {new Date().getFullYear()} Ravencoin Community Explorer</span></div>
+      <div className="footer__meta"><span>{t('footer.readOnly')}</span><span><a href="https://soap.qu.ai" target="_blank" rel="noreferrer">SOAP · Quai merge mining</a></span><span>{t('footer.built')} <a href="https://dominantstrategies.io" target="_blank" rel="noreferrer">Dominant Strategies</a></span><span>© {new Date().getFullYear()} Ravencoin Community Explorer</span></div>
   </div></footer>
 }
 

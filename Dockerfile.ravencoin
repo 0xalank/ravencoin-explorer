@@ -1,0 +1,38 @@
+FROM ubuntu:20.04 AS build
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG RAVEN_REPOSITORY=https://github.com/dominant-strategies/Ravencoin-Public.git
+ARG RAVEN_COMMIT=1ecb6598e8c14487676264b3e2ed91e4cc44c6cc
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    automake autotools-dev build-essential ca-certificates git libboost-all-dev \
+    libdb++-dev libevent-dev libssl-dev libtool pkg-config python3 && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN git clone --filter=blob:none "$RAVEN_REPOSITORY" /src && \
+    cd /src && git checkout --detach "$RAVEN_COMMIT"
+
+WORKDIR /src
+RUN ./autogen.sh && \
+    ./configure --disable-wallet --disable-tests --without-gui --without-miniupnpc --disable-zmq && \
+    make -j16 && \
+    strip src/ravend src/raven-cli
+
+FROM ubuntu:20.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates libboost-chrono1.71.0 libboost-filesystem1.71.0 \
+    libboost-program-options1.71.0 libboost-system1.71.0 libboost-thread1.71.0 \
+    libevent-2.1-7 libevent-pthreads-2.1-7 && \
+    rm -rf /var/lib/apt/lists/* && \
+    useradd --uid 1000 --create-home --shell /usr/sbin/nologin raven
+
+COPY --from=build /src/src/ravend /usr/local/bin/ravend
+COPY --from=build /src/src/raven-cli /usr/local/bin/raven-cli
+
+USER raven
+WORKDIR /home/raven
+EXPOSE 8766 8767
+ENTRYPOINT ["ravend"]
+CMD ["-datadir=/data", "-conf=/etc/ravencoin/raven.conf", "-printtoconsole", "-onlynet=ipv4"]

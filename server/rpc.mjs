@@ -172,6 +172,17 @@ export async function getLiveBlocks(rpc, limit = 8, start) {
   return blocks.map(normalizeBlock)
 }
 
+export async function getLiveTransactions(rpc, limit = 12) {
+  const height = await rpc.call('getblockcount')
+  const transactions = []
+  for (let offset = 0; offset < 6 && transactions.length < limit && height - offset >= 0; offset += 1) {
+    const hash = await rpc.call('getblockhash', [height - offset])
+    const block = normalizeBlock(await rpc.call('getblock', [hash, 2]))
+    transactions.push(...block.transactions)
+  }
+  return transactions.slice(0, limit)
+}
+
 export async function getLiveBlock(rpc, id) {
   const hash = /^\d+$/.test(String(id)) ? await rpc.call('getblockhash', [Number(id)]) : id
   return normalizeBlock(await rpc.call('getblock', [hash, 2]))
