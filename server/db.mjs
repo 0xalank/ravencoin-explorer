@@ -46,8 +46,10 @@ export async function databaseHealth(pool = getPool()) {
   const started = performance.now()
   const { rows } = await pool.query(`
     SELECT s.*, pg_database_size(current_database()) AS database_bytes,
-      (SELECT count(*) FROM blocks) AS indexed_blocks,
-      (SELECT count(*) FROM transactions) AS indexed_transactions,
+      GREATEST(s.best_height + 1, 0) AS indexed_blocks,
+      GREATEST(s.raw_height + 1, 0) AS staged_blocks,
+      (SELECT count(*) FROM transactions WHERE block_height <= s.best_height) AS indexed_transactions,
+      (SELECT count(*) FROM transactions) AS staged_transactions,
       (SELECT count(*) FROM assets) AS indexed_assets
     FROM sync_state s WHERE s.id = 'ravencoin-mainnet'
   `)

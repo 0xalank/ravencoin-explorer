@@ -144,6 +144,17 @@ export function DemoBanner() {
   return <div className="demo-banner"><div className="shell demo-banner__inner"><span className="demo-badge">DEMO</span><p><strong>{t('demo.title')}</strong> {t('demo.body')}</p></div></div>
 }
 
+export function SyncBanner({ status }: { status: Status | null }) {
+  const { t, locale } = useI18n()
+  if (!status?.indexer || status.indexer.progress >= 1) return null
+  const percent = new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 1 }).format(status.indexer.progress)
+  return <aside className="sync-banner" role="status"><div className="shell sync-banner__inner">
+    <Database size={15} aria-hidden="true" />
+    <p><strong>{t('sync.bannerTitle')}</strong><span>{t('sync.bannerBody')}</span></p>
+    <Link href="/stats">{percent} · {t('sync.bannerDetails')} <ArrowRight size={13} /></Link>
+  </div></aside>
+}
+
 export function Footer() {
   const { t } = useI18n()
   return <footer className="footer"><div className="shell footer__grid">

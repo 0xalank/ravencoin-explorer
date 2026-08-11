@@ -10,15 +10,15 @@ A production-oriented, community-run Ravencoin explorer developed by [Dominant S
 Ravencoin Core (RPC)
         │
         ▼
-Checkpointed indexer ─────► PostgreSQL
-                                 │
-                                 ▼
-                         Read-only API + UI
+Raw block ingestion ──────► PostgreSQL staged tip
+                                  │
+                                  ▼
+Address + asset aggregation ─► processed tip ─► Read-only API + UI
 ```
 
 The interface follows a compact block-explorer layout with latest blocks and transactions, native asset discovery, address balances, and localized navigation. It also links to the [Quai SOAP dashboard](https://soap.qu.ai) and explains how compatible Ravencoin proof of work can participate in Quai merge mining without changing Ravencoin consensus.
 
-The indexer reads verbose blocks in bounded batches and commits each batch transactionally. PostgreSQL stores:
+Raw block ingestion and address/asset aggregation run concurrently with independent checkpoints. The API only exposes the processed tip, so staged blocks never appear with incomplete balances or transfers. PostgreSQL stores:
 
 - Canonical blocks and transactions
 - Inputs, outputs, spent-output state, and transaction fees
@@ -134,9 +134,10 @@ Successful responses include `meta.source`: `indexed`, `live`, or `demo`. Produc
 
 ## Operations
 
-- The indexer resumes from `sync_state.best_height` after restarts.
-- `INDEXER_BATCH_SIZE` controls backfill transaction size. Start with `20`; increase only after observing node and database memory.
-- `INDEXER_FETCH_CONCURRENCY` controls ordered parallel `getblock` RPC batches. Start with `1` locally; `4` is appropriate when Ravencoin Core has spare CPU and RPC workers.
+- Raw ingestion resumes from `sync_state.raw_height`; aggregation resumes independently from `sync_state.best_height`.
+- `INDEXER_BATCH_SIZE` controls raw and aggregation transaction size. Start with `20` locally; the 64-core production profile uses `500`.
+- `INDEXER_FETCH_CONCURRENCY` controls ordered parallel `getblock` RPC batches. Start with `1` locally; the production profile uses `8`.
+- `INDEXER_RAW_LEAD_BLOCKS` bounds how far raw ingestion may run ahead of fully aggregated explorer data.
 - `/api/health` returns `503` when the node/database is unavailable or the indexer is in an error state.
 - Keep regular PostgreSQL backups. The database can always be rebuilt from genesis, but restoration is much faster than a full reindex.
 - Monitor indexer height versus target height, `last_error`, PostgreSQL disk usage, and API latency.

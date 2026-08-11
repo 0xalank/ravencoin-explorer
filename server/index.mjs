@@ -123,7 +123,7 @@ export function createApp(options = {}) {
       const healthy = !database || ['syncing', 'ready', 'idle'].includes(database.status)
       response.status(healthy ? 200 : 503).json({
         status: healthy ? 'ok' : 'degraded', chain: chain.chain, chainHeight: chain.blocks,
-        database: database ? { status: database.status, indexedHeight: database.best_height, targetHeight: chain.blocks, latencyMs: database.latencyMs } : null,
+        database: database ? { status: database.status, indexedHeight: database.best_height, rawHeight: database.raw_height, targetHeight: chain.blocks, latencyMs: database.latencyMs } : null,
       })
     } catch (error) {
       response.status(503).json({ status: 'unavailable', error: error.message })

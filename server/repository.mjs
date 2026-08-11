@@ -85,9 +85,11 @@ export async function getIndexedStatus(pool, rpc) {
     indexer: {
       status: database.status,
       indexedHeight,
+      rawHeight: number(database.raw_height) ?? indexedHeight,
       targetHeight,
       progress: targetHeight > 0 ? Math.max(0, Math.min(1, (indexedHeight + 1) / (targetHeight + 1))) : 0,
       indexedBlocks,
+      stagedBlocks: number(database.staged_blocks) ?? indexedBlocks,
       indexedTransactions: number(database.indexed_transactions) ?? 0,
       indexedAssets: number(database.indexed_assets) ?? 0,
       databaseBytes: number(database.database_bytes) ?? 0,
@@ -119,7 +121,7 @@ export async function getIndexedTransactions(pool, limit = 12) {
   const { rows } = await pool.query(`
     SELECT t.*, (s.best_height - t.block_height + 1) AS confirmations
     FROM transactions t CROSS JOIN sync_state s
-    WHERE s.id = 'ravencoin-mainnet'
+    WHERE s.id = 'ravencoin-mainnet' AND t.block_height <= s.best_height
     ORDER BY t.block_height DESC, t.tx_index DESC
     LIMIT $1
   `, [limit])
@@ -129,8 +131,9 @@ export async function getIndexedTransactions(pool, limit = 12) {
 export async function getIndexedNetworkStats(pool) {
   const [{ rows }, { rows: historyRows }] = await Promise.all([pool.query(`
     WITH recent_blocks AS MATERIALIZED (
-      SELECT height, time, size, tx_count FROM blocks
-      WHERE time >= (SELECT max(time) - interval '24 hours' FROM blocks)
+      SELECT b.height, b.time, b.size, b.tx_count FROM blocks b CROSS JOIN sync_state s
+      WHERE s.id = 'ravencoin-mainnet' AND b.height <= s.best_height
+        AND b.time >= (SELECT max(x.time) - interval '24 hours' FROM blocks x WHERE x.height <= s.best_height)
     ), rollup AS (
       SELECT min(height) AS start_height, max(height) AS end_height,
         min(time) AS window_start, max(time) AS window_end,
@@ -143,22 +146,25 @@ export async function getIndexedNetworkStats(pool) {
       EXTRACT(EPOCH FROM (r.window_end - r.window_start)) / NULLIF(r.window_blocks - 1, 0) AS average_block_time_seconds,
       r.window_transactions / NULLIF(EXTRACT(EPOCH FROM (r.window_end - r.window_start)), 0) AS transactions_per_second,
       (SELECT count(DISTINCT address) FROM address_transactions WHERE block_height >= r.start_height) AS active_addresses,
-      (SELECT COALESCE(avg(total_output_rvn), 0) FROM transactions WHERE block_height >= r.start_height AND tx_index = 0) AS average_block_reward,
-      (SELECT COALESCE(sum(fee_rvn), 0) FROM transactions WHERE block_height >= r.start_height) AS total_fees,
-      (SELECT COALESCE(sum(total_output_rvn), 0) FROM transactions WHERE block_height >= r.start_height) AS output_volume,
-      (SELECT count(*) FROM transactions) AS total_transactions,
+      (SELECT COALESCE(avg(total_output_rvn), 0) FROM transactions WHERE block_height BETWEEN r.start_height AND r.end_height AND tx_index = 0) AS average_block_reward,
+      (SELECT COALESCE(sum(fee_rvn), 0) FROM transactions WHERE block_height BETWEEN r.start_height AND r.end_height) AS total_fees,
+      (SELECT COALESCE(sum(total_output_rvn), 0) FROM transactions WHERE block_height BETWEEN r.start_height AND r.end_height) AS output_volume,
+      (SELECT count(*) FROM transactions WHERE block_height <= r.end_height) AS total_transactions,
       (SELECT count(*) FROM address_balances WHERE asset_name = 'RVN') AS tracked_addresses,
       (SELECT count(*) FROM assets) AS total_assets
     FROM rollup r
   `), pool.query(`
     WITH bounds AS (
-      SELECT date_trunc('hour', max(time)) AS end_hour FROM blocks
+      SELECT date_trunc('hour', max(b.time)) AS end_hour, s.best_height
+      FROM blocks b CROSS JOIN sync_state s WHERE s.id = 'ravencoin-mainnet' AND b.height <= s.best_height
+      GROUP BY s.best_height
     ), hours AS (
       SELECT generate_series(end_hour - interval '23 hours', end_hour, interval '1 hour') AS hour
       FROM bounds WHERE end_hour IS NOT NULL
     ), recent_blocks AS MATERIALIZED (
       SELECT height, date_trunc('hour', time) AS hour, tx_count, difficulty
-      FROM blocks WHERE time >= (SELECT end_hour - interval '23 hours' FROM bounds)
+      FROM blocks WHERE height <= (SELECT best_height FROM bounds)
+        AND time >= (SELECT end_hour - interval '23 hours' FROM bounds)
     ), block_activity AS (
       SELECT hour, count(*) AS blocks, COALESCE(sum(tx_count), 0) AS transactions,
         COALESCE(avg(difficulty), 0) AS difficulty
@@ -282,7 +288,7 @@ export async function getIndexedBlock(pool, id) {
   const { rows } = await pool.query(`
     SELECT b.*, n.hash AS next_hash, (s.best_height - b.height + 1) AS confirmations
     FROM blocks b CROSS JOIN sync_state s LEFT JOIN blocks n ON n.height = b.height + 1
-    WHERE s.id = 'ravencoin-mainnet' AND ${isHeight ? 'b.height = $1' : 'b.hash = $1'} LIMIT 1
+    WHERE s.id = 'ravencoin-mainnet' AND b.height <= s.best_height AND ${isHeight ? 'b.height = $1' : 'b.hash = $1'} LIMIT 1
   `, [isHeight ? Number(id) : id])
   if (!rows[0]) throw Object.assign(new Error('Block not found.'), { status: 404, code: -5 })
   const { rows: transactions } = await pool.query(`
@@ -296,7 +302,8 @@ export async function getIndexedBlock(pool, id) {
 export async function getIndexedTransaction(pool, txid) {
   const { rows } = await pool.query(`
     SELECT t.*, (s.best_height - t.block_height + 1) AS confirmations
-    FROM transactions t CROSS JOIN sync_state s WHERE s.id = 'ravencoin-mainnet' AND t.txid = $1
+    FROM transactions t CROSS JOIN sync_state s
+    WHERE s.id = 'ravencoin-mainnet' AND t.block_height <= s.best_height AND t.txid = $1
   `, [txid])
   if (!rows[0]) throw Object.assign(new Error('Transaction not found.'), { status: 404, code: -5 })
   const [{ rows: inputs }, { rows: outputs }] = await Promise.all([
@@ -328,7 +335,9 @@ export async function getIndexedAddress(pool, address) {
     pool.query(`
       SELECT o.txid, o.vout_index, o.value_rvn, o.asset_name, o.asset_amount, t.block_height
       FROM output_addresses a JOIN tx_outputs o USING (txid, vout_index) JOIN transactions t USING (txid)
-      WHERE a.address = $1 AND o.spent_by_txid IS NULL ORDER BY t.block_height DESC LIMIT 100
+      CROSS JOIN sync_state s
+      WHERE s.id = 'ravencoin-mainnet' AND t.block_height <= s.best_height
+        AND a.address = $1 AND o.spent_by_txid IS NULL ORDER BY t.block_height DESC LIMIT 100
     `, [address]),
     pool.query(`
       SELECT t.*, (s.best_height - t.block_height + 1) AS confirmations
@@ -381,7 +390,12 @@ export async function getIndexedAsset(pool, name) {
 export async function searchIndexed(pool, query) {
   if (/^\d+$/.test(query)) return { type: 'block', path: `/block/${query}` }
   if (/^[a-fA-F0-9]{64}$/.test(query)) {
-    const { rows } = await pool.query('SELECT EXISTS(SELECT 1 FROM blocks WHERE hash = $1) AS is_block', [query])
+    const { rows } = await pool.query(`
+      SELECT EXISTS(
+        SELECT 1 FROM blocks b CROSS JOIN sync_state s
+        WHERE s.id = 'ravencoin-mainnet' AND b.height <= s.best_height AND b.hash = $1
+      ) AS is_block
+    `, [query])
     return rows[0].is_block ? { type: 'block', path: `/block/${query}` } : { type: 'transaction', path: `/tx/${query}` }
   }
   if (/^[Rr][1-9A-HJ-NP-Za-km-z]{24,35}$/.test(query)) return { type: 'address', path: `/address/${query}` }

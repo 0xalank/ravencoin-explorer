@@ -7,7 +7,7 @@ import {
 import {
   BlockTable, CopyButton, DemoBanner, DetailGrid, EmptyState, ErrorState, Footer, formatAge,
   formatAmount, formatBytes, formatDate, formatHashrate, HashValue, Header, LoadingState, PageHeader,
-  QuaiMark, RavenCoinMark, RavenGlyph, SearchBox, StatCard, StatusStrip, TransactionRows,
+  QuaiMark, RavenCoinMark, RavenGlyph, SearchBox, StatCard, StatusStrip, SyncBanner, TransactionRows,
 } from './components'
 import { useApi } from './lib/api'
 import { useI18n } from './lib/i18n'
@@ -28,7 +28,7 @@ function formatDuration(seconds: number | null | undefined, locale: string) {
   return `${number.format(seconds)}s`
 }
 
-function IndexerProgress({ status }: { status: Status }) {
+function IndexerProgress({ status, technical = false }: { status: Status; technical?: boolean }) {
   const { t, locale } = useI18n()
   if (!status.indexer || status.indexer.progress >= 1) return null
   const percent = new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 2 }).format(status.indexer.progress)
@@ -38,11 +38,13 @@ function IndexerProgress({ status }: { status: Status }) {
     <div className="indexer-panel__track"><i style={{ width: `${Math.max(.35, status.indexer.progress * 100)}%` }} /></div>
     <div className="indexer-panel__meta">
       <span>{t('indexer.indexedTip')} <b>#{number(status.indexer.indexedHeight)}</b></span>
+      <span>{t('indexer.rawTip')} <b>#{number(status.indexer.rawHeight)}</b></span>
       <span>{t('indexer.networkTip')} <b>#{number(status.chainTip ?? status.indexer.targetHeight)}</b></span>
-      <span>{t('indexer.rate')} <b>{number(status.indexer.blocksPerSecond, 1)} {t('indexer.blocksPerSecond')}</b></span>
-      <span>{t('indexer.eta')} <b>{formatDuration(status.indexer.estimatedSecondsRemaining, locale)}</b></span>
-      <span>{t('indexer.remaining')} <b>{number(status.indexer.blocksRemaining)}</b></span>
-      <span>{t('indexer.updated')} <b>{status.indexer.lastIndexedAt ? formatAge(status.indexer.lastIndexedAt, locale) : '—'}</b></span>
+      {technical && <>
+        <span>{t('indexer.rate')} <b>{number(status.indexer.blocksPerSecond, 1)} {t('indexer.blocksPerSecond')}</b></span>
+        <span>{t('indexer.eta')} <b>{formatDuration(status.indexer.estimatedSecondsRemaining, locale)}</b></span>
+        <span>{t('indexer.updated')} <b>{status.indexer.lastIndexedAt ? formatAge(status.indexer.lastIndexedAt, locale) : '—'}</b></span>
+      </>}
     </div>
     <p>{t('indexer.notice')}</p>
   </section>
@@ -135,7 +137,7 @@ function StatsPage({ status }: { status: Status | null }) {
   const number = (value: number, maximumFractionDigits = 0) => new Intl.NumberFormat(locale, { maximumFractionDigits }).format(value)
   const data = stats.data
   return <main className="shell page technical-page"><PageHeader eyebrow="KAWPOW · MAINNET TELEMETRY" title={t('stats.title')} subtitle={t('stats.subtitle')} />
-    {status && <IndexerProgress status={status} />}
+    {status && <IndexerProgress status={status} technical />}
     {stats.loading && !data ? <LoadingState /> : stats.error ? <ErrorState error={stats.error} retry={stats.refetch} /> : data && <>
       <section className="stats-dashboard">
         <div className="stats-dashboard__heading"><div><span>{t('stats.indexedSeries')}</span><h2>{t('stats.networkOverview')}</h2></div><span>KAWPOW · MAINNET</span></div>
@@ -155,13 +157,13 @@ function StatsPage({ status }: { status: Status | null }) {
         </div>
         <div className="stats-data-section"><h2>{t('stats.syncMetrics')}</h2><div className="stats-data-grid">
           <div><span>{t('indexer.networkTip')}</span><strong>#{number(status?.chainTip ?? status?.blocks ?? data.windowEndHeight)}</strong></div>
+          <div><span>{t('indexer.rawTip')}</span><strong>#{number(status?.indexer?.rawHeight ?? status?.indexer?.indexedHeight ?? data.windowEndHeight)}</strong></div>
           <div><span>{t('indexer.indexedTip')}</span><strong>#{number(status?.indexer?.indexedHeight ?? data.windowEndHeight)}</strong></div>
           <div><span>{t('indexer.remaining')}</span><strong>{number(status?.indexer?.blocksRemaining ?? 0)}</strong></div>
           <div><span>{t('indexer.rate')}</span><strong>{number(status?.indexer?.blocksPerSecond ?? 0, 1)} {t('indexer.blocksPerSecond')}</strong></div>
           <div><span>{t('indexer.eta')}</span><strong>{formatDuration(status?.indexer?.estimatedSecondsRemaining, locale)}</strong></div>
           <div><span>{t('stats.totalTransactions')}</span><strong>{number(data.totalTransactions)}</strong></div>
           <div><span>{t('stats.trackedAddresses')}</span><strong><Link className="text-link" href="/addresses">{number(data.trackedAddresses)}</Link></strong></div>
-          <div><span>{t('stats.assetsIndexed')}</span><strong>{number(data.totalAssets)}</strong></div>
         </div></div>
         <div className="stats-data-section"><h2>{t('stats.activityMetrics')}</h2><div className="stats-data-grid">
           <div><span>{t('stats.blocksWindow')}</span><strong>{number(data.windowBlocks)}</strong></div>
@@ -389,5 +391,5 @@ export default function App() {
   const path = usePath()
   const status = useApi<Status>('/api/status', 30_000)
   const memoStatus = useMemo(() => status.data, [status.data])
-  return <div className="app"><Header meta={status.meta} />{status.meta?.source === 'demo' && <DemoBanner />}<Route path={path} status={memoStatus} /><Footer /></div>
+  return <div className="app"><Header meta={status.meta} />{status.meta?.source === 'demo' && <DemoBanner />}<SyncBanner status={memoStatus} /><Route path={path} status={memoStatus} /><Footer /></div>
 }

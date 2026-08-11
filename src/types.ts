@@ -30,9 +30,11 @@ export interface Status {
   indexer?: {
     status: 'idle' | 'syncing' | 'ready' | 'error' | 'reorg'
     indexedHeight: number
+    rawHeight: number
     targetHeight: number
     progress: number
     indexedBlocks: number
+    stagedBlocks: number
     indexedTransactions: number
     indexedAssets: number
     databaseBytes: number

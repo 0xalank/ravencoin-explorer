@@ -2,7 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import pg from 'pg'
 import { migrate } from './db.mjs'
-import { indexBlockBatch, rollbackTo } from './indexer.mjs'
+import { rollbackTo } from './indexer.mjs'
+import { aggregateBlockRange, stageRawBlockBatch } from './pipeline.mjs'
 import { getIndexedAddress, getIndexedAddresses, getIndexedBlock, getIndexedNetworkStats, getIndexedTransaction } from './repository.mjs'
 
 const connectionString = process.env.TEST_DATABASE_URL
@@ -13,7 +14,8 @@ test('indexes balances, spends, assets and reverses a reorg transactionally', { 
     await pool.query(`
       TRUNCATE asset_transfers, asset_sync_queue, assets, address_balances, address_activity, address_transactions,
         tx_inputs, output_addresses, tx_outputs, transactions, blocks RESTART IDENTITY CASCADE;
-      UPDATE sync_state SET best_height = -1, best_hash = NULL, status = 'idle', target_height = NULL, last_error = NULL;
+      UPDATE sync_state SET best_height = -1, best_hash = NULL, raw_height = -1, raw_hash = NULL,
+        status = 'idle', target_height = NULL, last_error = NULL;
     `)
     await pool.end()
   })
@@ -22,7 +24,8 @@ test('indexes balances, spends, assets and reverses a reorg transactionally', { 
   await pool.query(`
     TRUNCATE asset_transfers, asset_sync_queue, assets, address_balances, address_activity, address_transactions,
       tx_inputs, output_addresses, tx_outputs, transactions, blocks RESTART IDENTITY CASCADE;
-    UPDATE sync_state SET best_height = -1, best_hash = NULL, status = 'idle', target_height = NULL;
+    UPDATE sync_state SET best_height = -1, best_hash = NULL, raw_height = -1, raw_hash = NULL,
+      status = 'idle', target_height = NULL;
   `)
 
   const addressA = 'R111111111111111111111111111111111'
@@ -61,8 +64,16 @@ test('indexes balances, spends, assets and reverses a reorg transactionally', { 
     }],
   }
 
-  await indexBlockBatch(pool, [genesis], null)
-  await indexBlockBatch(pool, [next], genesisHash)
+  await stageRawBlockBatch(pool, [genesis], null)
+  let checkpoint = (await pool.query('SELECT best_height, raw_height FROM sync_state WHERE id = $1', ['ravencoin-mainnet'])).rows[0]
+  assert.equal(checkpoint.best_height, -1)
+  assert.equal(checkpoint.raw_height, 0)
+  await aggregateBlockRange(pool, 0, 0)
+  await stageRawBlockBatch(pool, [next], genesisHash)
+  checkpoint = (await pool.query('SELECT best_height, raw_height FROM sync_state WHERE id = $1', ['ravencoin-mainnet'])).rows[0]
+  assert.equal(checkpoint.best_height, 0)
+  assert.equal(checkpoint.raw_height, 1)
+  await aggregateBlockRange(pool, 1, 1)
 
   const balances = (await pool.query('SELECT address, asset_name, balance FROM address_balances ORDER BY address, asset_name')).rows
   assert.deepEqual(balances.map((row) => [row.address, row.asset_name, row.balance]), [
@@ -103,5 +114,6 @@ test('indexes balances, spends, assets and reverses a reorg transactionally', { 
   ])
   assert.equal((await pool.query('SELECT spent_by_txid FROM tx_outputs WHERE txid = $1 AND vout_index = 0', [genesisTx])).rows[0].spent_by_txid, null)
   assert.equal((await pool.query('SELECT best_height FROM sync_state WHERE id = $1', ['ravencoin-mainnet'])).rows[0].best_height, 0)
+  assert.equal((await pool.query('SELECT raw_height FROM sync_state WHERE id = $1', ['ravencoin-mainnet'])).rows[0].raw_height, 0)
 
 })

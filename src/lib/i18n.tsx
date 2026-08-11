@@ -232,8 +232,9 @@ Object.assign(en, {
   'stats.chainData': 'Chain data', 'addresses.subtitle': 'RVN balances, distribution, and activity.',
   'addresses.positive': 'Addresses', 'addresses.balance': 'RVN balance', 'addresses.note': 'Balances and rankings update as the explorer syncs.',
   'indexer.rate': 'Indexing rate', 'indexer.blocksPerSecond': 'blocks/s', 'indexer.eta': 'Estimated catch-up',
-  'indexer.remaining': 'Blocks remaining', 'indexer.updated': 'Last update',
+  'indexer.remaining': 'Blocks remaining', 'indexer.updated': 'Last update', 'indexer.rawTip': 'Staged tip',
   'indexer.notice': 'Address and asset history fills in continuously as the explorer catches up.',
+  'sync.bannerTitle': 'Explorer syncing', 'sync.bannerBody': 'Balances, transaction history, and asset activity may lag behind the network.', 'sync.bannerDetails': 'Sync details',
   'stats.blocksChart': 'Blocks by hour', 'stats.syncMetrics': 'Sync progress', 'stats.activityMetrics': '24-hour activity metrics',
 })
 Object.assign(ko, {
@@ -245,7 +246,8 @@ Object.assign(ko, {
   'stats.chainData': '체인 데이터', 'addresses.subtitle': 'RVN 잔액, 분포 및 활동입니다.',
   'addresses.positive': '주소', 'addresses.balance': 'RVN 잔액', 'addresses.note': '탐색기가 동기화되는 동안 잔액과 순위가 갱신됩니다.',
   'indexer.rate': '인덱싱 속도', 'indexer.blocksPerSecond': '블록/초', 'indexer.eta': '예상 완료',
-  'indexer.remaining': '남은 블록', 'indexer.updated': '최근 업데이트',
+  'indexer.remaining': '남은 블록', 'indexer.updated': '최근 업데이트', 'indexer.rawTip': '수집 높이',
+  'sync.bannerTitle': '탐색기 동기화 중', 'sync.bannerBody': '잔액, 거래 기록 및 자산 활동이 네트워크보다 늦을 수 있습니다.', 'sync.bannerDetails': '동기화 세부정보',
   'stats.blocksChart': '시간별 블록', 'stats.syncMetrics': '동기화 진행', 'stats.activityMetrics': '24시간 활동 지표',
 })
 Object.assign(zh, {
@@ -257,7 +259,8 @@ Object.assign(zh, {
   'stats.chainData': '链上数据', 'addresses.subtitle': 'RVN 余额、分布和活动。',
   'addresses.positive': '地址', 'addresses.balance': 'RVN 余额', 'addresses.note': '浏览器同步期间，余额和排名会持续更新。',
   'indexer.rate': '索引速度', 'indexer.blocksPerSecond': '区块/秒', 'indexer.eta': '预计追平',
-  'indexer.remaining': '剩余区块', 'indexer.updated': '最近更新',
+  'indexer.remaining': '剩余区块', 'indexer.updated': '最近更新', 'indexer.rawTip': '暂存高度',
+  'sync.bannerTitle': '浏览器同步中', 'sync.bannerBody': '余额、交易历史和资产活动可能落后于网络。', 'sync.bannerDetails': '同步详情',
   'stats.blocksChart': '每小时区块', 'stats.syncMetrics': '同步进度', 'stats.activityMetrics': '24 小时活动指标',
 })
 Object.assign(ja, {
@@ -267,7 +270,8 @@ Object.assign(ja, {
   'stats.indexedSeries': '24時間のアクティビティ', 'stats.chainData': 'チェーンデータ',
   'addresses.subtitle': 'RVN残高、分布、アクティビティ。', 'addresses.positive': 'アドレス', 'addresses.balance': 'RVN残高',
   'indexer.rate': 'インデックス速度', 'indexer.blocksPerSecond': 'ブロック/秒', 'indexer.eta': '推定完了',
-  'indexer.remaining': '残りブロック', 'indexer.updated': '最終更新',
+  'indexer.remaining': '残りブロック', 'indexer.updated': '最終更新', 'indexer.rawTip': 'ステージ済み高さ',
+  'sync.bannerTitle': 'エクスプローラー同期中', 'sync.bannerBody': '残高、取引履歴、資産アクティビティがネットワークより遅れる場合があります。', 'sync.bannerDetails': '同期の詳細',
   'stats.blocksChart': '時間別ブロック', 'stats.syncMetrics': '同期進捗', 'stats.activityMetrics': '24時間アクティビティ指標',
 })
 Object.assign(es, {
@@ -277,7 +281,8 @@ Object.assign(es, {
   'stats.indexedSeries': 'Actividad de 24 horas', 'stats.chainData': 'Datos de cadena',
   'addresses.subtitle': 'Saldos, distribución y actividad de RVN.', 'addresses.positive': 'Direcciones', 'addresses.balance': 'Saldo RVN',
   'indexer.rate': 'Velocidad de indexación', 'indexer.blocksPerSecond': 'bloques/s', 'indexer.eta': 'Tiempo estimado',
-  'indexer.remaining': 'Bloques restantes', 'indexer.updated': 'Última actualización',
+  'indexer.remaining': 'Bloques restantes', 'indexer.updated': 'Última actualización', 'indexer.rawTip': 'Altura preparada',
+  'sync.bannerTitle': 'Explorador sincronizando', 'sync.bannerBody': 'Los saldos, el historial y la actividad de activos pueden retrasarse respecto a la red.', 'sync.bannerDetails': 'Detalles de sincronización',
   'stats.blocksChart': 'Bloques por hora', 'stats.syncMetrics': 'Progreso de sincronización', 'stats.activityMetrics': 'Métricas de actividad de 24 horas',
 })
 

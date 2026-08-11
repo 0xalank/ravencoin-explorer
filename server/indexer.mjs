@@ -2,17 +2,18 @@ import 'dotenv/config'
 import { getPool, migrate, closePool } from './db.mjs'
 import { RavenRpc } from './rpc.mjs'
 import { atomicToDecimal, BalanceAccumulator, decimalToAtomic, normalizeOutput } from './indexer-utils.mjs'
+import { aggregateBlockRange, stageRawBlockBatch } from './pipeline.mjs'
 
 const STATE_ID = 'ravencoin-mainnet'
 const INDEXER_LOCK = 1_884_202_019
-const BATCH_SIZE = Math.min(100, Math.max(1, Number(process.env.INDEXER_BATCH_SIZE) || 20))
-const FETCH_CONCURRENCY = Math.min(8, Math.max(1, Number(process.env.INDEXER_FETCH_CONCURRENCY) || 1))
+const BATCH_SIZE = Math.min(2_000, Math.max(1, Number(process.env.INDEXER_BATCH_SIZE) || 20))
+const FETCH_CONCURRENCY = Math.min(16, Math.max(1, Number(process.env.INDEXER_FETCH_CONCURRENCY) || 1))
+const RAW_LEAD_BLOCKS = Math.max(BATCH_SIZE, Number(process.env.INDEXER_RAW_LEAD_BLOCKS) || BATCH_SIZE * 4)
 const POLL_MS = Math.max(1_000, Number(process.env.INDEXER_POLL_MS) || 5_000)
 const ASSET_PAGE_SIZE = Math.min(5_000, Math.max(100, Number(process.env.INDEXER_ASSET_PAGE_SIZE) || 1_000))
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 
 const asJson = (rows) => JSON.stringify(rows)
-const unique = (items) => [...new Set(items.filter(Boolean))]
 const outputKey = (txid, vout) => `${txid}:${vout}`
 
 async function insertJson(client, rows, sql) {
@@ -74,6 +75,7 @@ export async function indexBlockBatch(pool, blocks, expectedPreviousHash) {
   const assetNames = new Set()
   try {
     await client.query('BEGIN')
+    await client.query('SET LOCAL synchronous_commit = off')
     await insertJson(client, collectBlockRows(blocks), `
       INSERT INTO blocks (height, hash, previous_hash, time, size, weight, tx_count, confirmations, difficulty, version, merkle_root, nonce, bits, chainwork)
       SELECT height, hash, previous_hash, time, size, weight, tx_count, confirmations, difficulty, version, merkle_root, nonce, bits, chainwork
@@ -151,18 +153,21 @@ export async function indexBlockBatch(pool, blocks, expectedPreviousHash) {
       ON CONFLICT DO NOTHING
     `)
 
-    const previousKeys = unique(blocks.flatMap((block) => (block.tx ?? []).flatMap((transaction) =>
-      (transaction.vin ?? []).filter((input) => input.txid != null).map((input) => outputKey(input.txid, input.vout))
-    )))
+    const previousReferences = [...new Map(blocks.flatMap((block) => (block.tx ?? []).flatMap((transaction) =>
+      (transaction.vin ?? []).filter((input) => input.txid != null).map((input) => [outputKey(input.txid, input.vout), { txid: input.txid, vout_index: input.vout }])
+    ))).values()]
     const previousOutputs = new Map()
-    if (previousKeys.length) {
+    if (previousReferences.length) {
       const { rows } = await client.query(`
+        WITH requested AS MATERIALIZED (
+          SELECT txid, vout_index FROM jsonb_to_recordset($1::jsonb) AS x(txid char(64), vout_index integer)
+        )
         SELECT o.txid, o.vout_index, o.value_rvn, o.asset_name, o.asset_amount,
           COALESCE(array_agg(a.address) FILTER (WHERE a.address IS NOT NULL), '{}') AS addresses
-        FROM tx_outputs o LEFT JOIN output_addresses a USING (txid, vout_index)
-        WHERE concat(o.txid, ':', o.vout_index) = ANY($1::text[])
+        FROM requested r JOIN tx_outputs o ON o.txid = r.txid AND o.vout_index = r.vout_index
+        LEFT JOIN output_addresses a ON a.txid = o.txid AND a.vout_index = o.vout_index
         GROUP BY o.txid, o.vout_index, o.value_rvn, o.asset_name, o.asset_amount
-      `, [previousKeys])
+      `, [asJson(previousReferences)])
       for (const row of rows) previousOutputs.set(outputKey(row.txid.trim(), row.vout_index), row)
     }
 
@@ -365,17 +370,20 @@ async function refreshAssets(pool, rpc, names, height) {
 
 async function drainAssetQueue(pool, rpc, height) {
   const { rows } = await pool.query('SELECT asset_name FROM asset_sync_queue ORDER BY seen_height, queued_at LIMIT 100')
-  if (!rows.length) return
+  if (!rows.length) return false
   const names = rows.map((row) => row.asset_name)
   try { await refreshAssets(pool, rpc, names, height) }
   catch (error) {
     await pool.query(`UPDATE asset_sync_queue SET attempts = attempts + 1, last_error = $2, updated_at = now() WHERE asset_name = ANY($1::text[])`, [names, String(error.message ?? error).slice(0, 1_000)])
     throw error
   }
+  return true
 }
 
 async function bootstrapAssets(pool, rpc) {
   if (String(process.env.INDEXER_BOOTSTRAP_ASSETS ?? 'true').toLowerCase() === 'false') return
+  const { rows: countRows } = await pool.query('SELECT count(*) AS count FROM assets')
+  if (Number(countRows[0]?.count) > 0) return
   let offset = 0
   while (true) {
     const page = await rpc.call('listassets', ['*', true, ASSET_PAGE_SIZE, offset])
@@ -407,6 +415,9 @@ export async function rollbackTo(pool, rpc, ancestorHeight) {
   let affectedAssets = []
   try {
     await client.query('BEGIN')
+    await client.query('SET LOCAL synchronous_commit = off')
+    const state = await getState(client)
+    const processedHeight = Math.min(Number(state.best_height), ancestorHeight)
     await setState(client, { status: 'reorg' })
     const addresses = (await client.query('SELECT DISTINCT address FROM address_activity WHERE block_height > $1', [ancestorHeight])).rows.map((row) => row.address)
     affectedAssets = (await client.query("SELECT DISTINCT asset_name FROM asset_transfers WHERE block_height > $1 AND transfer_type IN ('issue', 'reissue')", [ancestorHeight])).rows.map((row) => row.asset_name)
@@ -429,8 +440,13 @@ export async function rollbackTo(pool, rpc, ancestorHeight) {
         FROM address_activity WHERE address = ANY($1::text[]) GROUP BY address, asset_name
       `, [addresses])
     }
-    const tip = (await client.query('SELECT height, hash FROM blocks ORDER BY height DESC LIMIT 1')).rows[0]
-    await setState(client, { best_height: tip?.height ?? -1, best_hash: tip?.hash?.trim() ?? null, status: 'syncing', last_error: null })
+    const processedTip = processedHeight >= 0 ? (await client.query('SELECT hash FROM blocks WHERE height = $1', [processedHeight])).rows[0] : null
+    const rawTip = ancestorHeight >= 0 ? (await client.query('SELECT hash FROM blocks WHERE height = $1', [ancestorHeight])).rows[0] : null
+    await setState(client, {
+      best_height: processedHeight, best_hash: processedTip?.hash?.trim() ?? null,
+      raw_height: ancestorHeight, raw_hash: rawTip?.hash?.trim() ?? null,
+      status: 'syncing', last_error: null,
+    })
     await client.query('COMMIT')
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {})
@@ -452,29 +468,67 @@ export class RavencoinIndexer {
     const chain = await this.rpc.call('getblockchaininfo')
     if (chain.chain !== 'main' && String(process.env.ALLOW_NON_MAINNET).toLowerCase() !== 'true') throw new Error(`Refusing to index unexpected chain: ${chain.chain}`)
     let state = await getState(this.pool)
-    await drainAssetQueue(this.pool, this.rpc, state.best_height).catch((error) => console.warn('Deferred asset metadata refresh:', error.message))
-    if (state.best_height >= 0) {
+    const rawHeight = Number(state.raw_height ?? state.best_height)
+    const rawHash = state.raw_hash?.trim() ?? state.best_hash?.trim()
+    if (rawHeight >= 0) {
       let canonical
-      try { canonical = await this.rpc.call('getblockhash', [state.best_height]) } catch {}
-      if (!canonical || canonical !== state.best_hash?.trim()) {
-        const ancestor = await findCommonAncestor(this.pool, this.rpc, Math.min(state.best_height, chain.blocks))
+      try { canonical = await this.rpc.call('getblockhash', [rawHeight]) } catch {}
+      if (!canonical || canonical !== rawHash) {
+        const ancestor = await findCommonAncestor(this.pool, this.rpc, Math.min(rawHeight, chain.blocks))
         console.warn(`Reorg detected. Rolling back to height ${ancestor}.`)
         await rollbackTo(this.pool, this.rpc, ancestor)
         state = await getState(this.pool)
       }
     }
-    await setState(this.pool, { status: 'syncing', target_height: chain.blocks, started_at: state.started_at ?? new Date(), last_error: null })
-    let height = state.best_height + 1
-    while (height <= chain.blocks && !this.stopping) {
-      const last = Math.min(chain.blocks, height + BATCH_SIZE - 1)
-      const blocks = await fetchBlockBatch(this.rpc, height, last)
-      const assets = await indexBlockBatch(this.pool, blocks, state.best_hash?.trim() ?? null)
-      const tip = blocks.at(-1)
-      state = { ...state, best_height: tip.height, best_hash: tip.hash }
-      if (assets.size) await refreshAssets(this.pool, this.rpc, assets, tip.height).catch((error) => console.warn(`Asset metadata refresh failed at ${tip.height}:`, error.message))
-      height = last + 1
-      if (tip.height % 1_000 < BATCH_SIZE) console.log(`Indexed block ${tip.height.toLocaleString()} / ${chain.blocks.toLocaleString()}`)
+    await setState(this.pool, {
+      status: 'syncing', target_height: chain.blocks, started_at: state.started_at ?? new Date(), last_error: null,
+      raw_height: state.raw_height == null || Number(state.raw_height) < Number(state.best_height) ? state.best_height : state.raw_height,
+      raw_hash: state.raw_hash == null || Number(state.raw_height) < Number(state.best_height) ? state.best_hash : state.raw_hash,
+    })
+
+    let pipelineDone = false
+    const produce = async () => {
+      while (!this.stopping) {
+        const current = await getState(this.pool)
+        const stagedHeight = Number(current.raw_height)
+        const processedHeight = Number(current.best_height)
+        if (stagedHeight >= chain.blocks) return
+        if (stagedHeight - processedHeight >= RAW_LEAD_BLOCKS) { await sleep(100); continue }
+        const first = stagedHeight + 1
+        const last = Math.min(chain.blocks, first + BATCH_SIZE - 1, processedHeight + RAW_LEAD_BLOCKS)
+        const blocks = await fetchBlockBatch(this.rpc, first, last)
+        await stageRawBlockBatch(this.pool, blocks, current.raw_hash?.trim() ?? current.best_hash?.trim() ?? null)
+        if (last % 5_000 < BATCH_SIZE) console.log(`Raw block data ${last.toLocaleString()} / ${chain.blocks.toLocaleString()}`)
+      }
     }
+    const aggregate = async () => {
+      while (!this.stopping) {
+        const current = await getState(this.pool)
+        const processedHeight = Number(current.best_height)
+        if (processedHeight >= chain.blocks) return
+        const stagedHeight = Number(current.raw_height)
+        if (stagedHeight <= processedHeight) { await sleep(100); continue }
+        const first = processedHeight + 1
+        const last = Math.min(stagedHeight, first + BATCH_SIZE - 1, chain.blocks)
+        await aggregateBlockRange(this.pool, first, last)
+        if (last % 1_000 < BATCH_SIZE) console.log(`Indexed block ${last.toLocaleString()} / ${chain.blocks.toLocaleString()}`)
+      }
+    }
+    const assets = async () => {
+      while (!this.stopping && !pipelineDone) {
+        try {
+          const current = await getState(this.pool)
+          const worked = await drainAssetQueue(this.pool, this.rpc, current.best_height)
+          if (!worked) await sleep(500)
+        } catch (error) {
+          console.warn('Deferred asset metadata refresh:', error.message)
+          await sleep(1_000)
+        }
+      }
+      while (!this.stopping && await drainAssetQueue(this.pool, this.rpc, chain.blocks).catch(() => false)) {}
+    }
+    const pipeline = Promise.all([produce(), aggregate()]).finally(() => { pipelineDone = true })
+    await Promise.all([pipeline, assets()])
     if (!this.stopping) await setState(this.pool, { status: 'ready', target_height: chain.blocks, indexed_at: new Date(), last_error: null })
   }
 

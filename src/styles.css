@@ -123,6 +123,12 @@ button { color: inherit; }
 .demo-banner p { margin: 0; color: #d6c6b2; font-size: 12px; }
 .demo-banner strong { margin-right: 4px; color: #ffd29b; }
 .demo-badge { padding: 3px 6px; border-radius: 5px; color: #12100c; background: var(--accent-light); font-size: 9px; font-weight: 800; letter-spacing: .1em; }
+.sync-banner { border-bottom: 1px solid rgba(245,155,50,.22); background: linear-gradient(90deg, rgba(245,155,50,.13), rgba(245,155,50,.055)); }
+.sync-banner__inner { min-height: 43px; display: flex; align-items: center; gap: 10px; color: #f6b665; }
+.sync-banner__inner > svg { flex: 0 0 auto; }
+.sync-banner p { display: flex; align-items: baseline; gap: 8px; margin: 0; color: #c8b9a8; font-size: 12px; }
+.sync-banner strong { color: #ffd29b; font-weight: 750; }
+.sync-banner a { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; color: #f7ba70; font-size: 11px; font-weight: 700; white-space: nowrap; }
 
 .hero { position: relative; min-height: 312px; display: grid; align-items: center; overflow: hidden; border-bottom: 1px solid var(--line); background:
   linear-gradient(112deg, rgba(25,37,54,.97), rgba(13,21,32,.95) 58%, rgba(38,28,27,.9)),
@@ -561,6 +567,9 @@ tbody tr:hover { background: rgba(255,255,255,.022); }
 :root[data-theme='light'] .language__menu button:hover, :root[data-theme='light'] .language__menu button.active { color: #101828; background: #f2f4f7; }
 :root[data-theme='light'] .demo-banner p { color: #735437; }
 :root[data-theme='light'] .demo-banner strong { color: #9e4a0b; }
+:root[data-theme='light'] .sync-banner { background: linear-gradient(90deg, rgba(232,126,31,.12), rgba(232,126,31,.045)); }
+:root[data-theme='light'] .sync-banner p { color: #694f38; }
+:root[data-theme='light'] .sync-banner strong, :root[data-theme='light'] .sync-banner a { color: #8a3f09; }
 :root[data-theme='light'] .hero { background: linear-gradient(112deg, #fff, #f7f8fb 64%, #fff8f1), linear-gradient(90deg, rgba(29,41,57,.035) 1px, transparent 1px), linear-gradient(rgba(29,41,57,.035) 1px, transparent 1px); background-size: auto,44px 44px,44px 44px; }
 :root[data-theme='light'] .hero__content > p, :root[data-theme='light'] .market-summary p,
 :root[data-theme='light'] .community-callout p, :root[data-theme='light'] .community-card p { color: #667085; }
@@ -635,6 +644,10 @@ tbody tr:hover { background: rgba(255,255,255,.022); }
   .quai-nav-link span, .quai-nav-link > svg:last-child { display: none; }
   .demo-banner__inner { padding-block: 8px; }
   .demo-banner p { font-size: 10px; line-height: 1.4; }
+  .sync-banner__inner { min-height: 0; padding-block: 8px; align-items: flex-start; }
+  .sync-banner p { display: block; font-size: 10px; line-height: 1.4; }
+  .sync-banner p span { display: block; }
+  .sync-banner a { font-size: 10px; }
   .hero { min-height: 350px; }
   .hero__raven { top: -15px; right: -75px; width: 260px; opacity: .05; }
   .hero__content { padding-block: 48px 40px; }
