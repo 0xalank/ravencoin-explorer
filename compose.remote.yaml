@@ -53,19 +53,29 @@ services:
       - -c
       - checkpoint_completion_target=0.9
       - -c
-      - max_wal_size=32GB
+      - max_wal_size=64GB
       - -c
-      - min_wal_size=4GB
+      - min_wal_size=8GB
       - -c
-      - wal_compression=on
+      - wal_compression=lz4
       - -c
       - checkpoint_timeout=30min
       - -c
       - effective_io_concurrency=256
+      - maintenance_io_concurrency=256
       - -c
       - wal_buffers=64MB
       - -c
       - random_page_cost=1.1
+      - autovacuum_max_workers=6
+      - autovacuum_work_mem=1GB
+      - bgwriter_lru_maxpages=1000
+      - bgwriter_lru_multiplier=4.0
+      - bgwriter_delay=100ms
+      - shared_preload_libraries=pg_stat_statements
+      - track_io_timing=on
+      - track_wal_io_timing=on
+      - log_temp_files=65536
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -91,12 +101,12 @@ services:
       <<: *app-environment
       SERVICE_NAME: ravencoin-indexer
       INDEXER_BATCH_SIZE: ${INDEXER_BATCH_SIZE:-100}
-      INDEXER_RAW_BATCH_SIZE: ${INDEXER_RAW_BATCH_SIZE:-${INDEXER_BATCH_SIZE:-100}}
+      INDEXER_RAW_BATCH_SIZE: ${INDEXER_RAW_BATCH_SIZE:-500}
       INDEXER_AGGREGATION_BATCH_SIZE: ${INDEXER_AGGREGATION_BATCH_SIZE:-${INDEXER_BATCH_SIZE:-100}}
       INDEXER_AGGREGATION_CONCURRENCY: ${INDEXER_AGGREGATION_CONCURRENCY:-4}
       INDEXER_FETCH_CONCURRENCY: ${INDEXER_FETCH_CONCURRENCY:-8}
       INDEXER_RAW_LEAD_BLOCKS: ${INDEXER_RAW_LEAD_BLOCKS:-5000}
-      INDEXER_WORK_MEM: ${INDEXER_WORK_MEM:-512MB}
+      INDEXER_WORK_MEM: ${INDEXER_WORK_MEM:-128MB}
       INDEXER_JSON_CHUNK_BYTES: ${INDEXER_JSON_CHUNK_BYTES:-67108864}
       DATABASE_STATEMENT_TIMEOUT_MS: ${INDEXER_DATABASE_STATEMENT_TIMEOUT_MS:-120000}
       INDEXER_POLL_MS: ${INDEXER_POLL_MS:-1000}

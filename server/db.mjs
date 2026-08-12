@@ -11,7 +11,7 @@ let sharedPool
 // Bump this whenever schema.sql adds a new migration version. Completed
 // databases skip the idempotent DDL so API/indexer restarts cannot contend
 // with live writes for table locks.
-const LATEST_SCHEMA_VERSION = 3
+const LATEST_SCHEMA_VERSION = 4
 
 const DEFAULT_INDEXER_STALE_SECONDS = 600
 
@@ -93,8 +93,8 @@ async function readDatabaseState(pool, includeCounts) {
       pg_database_size(current_database()) AS database_bytes,
       GREATEST(s.best_height + 1, 0) AS indexed_blocks,
       GREATEST(s.raw_height + 1, 0) AS staged_blocks,
-      (SELECT count(*) FROM transactions WHERE block_height <= s.best_height) AS indexed_transactions,
-      (SELECT count(*) FROM transactions) AS staged_transactions,
+      (SELECT COALESCE(sum(tx_count), 0) FROM blocks WHERE height <= s.best_height) AS indexed_transactions,
+      (SELECT COALESCE(sum(tx_count), 0) FROM blocks) AS staged_transactions,
       (SELECT count(*) FROM assets) AS indexed_assets` : ''
   const { rows } = await pool.query(`
     SELECT s.*${countColumns},

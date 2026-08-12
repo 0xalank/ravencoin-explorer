@@ -147,7 +147,7 @@ export function createApp(options = {}) {
   app.get('/api/status', withData(
     () => useDatabase ? getIndexedStatus(pool, rpc) : getLiveStatus(rpc),
     () => mockStatus(),
-    5))
+    30))
   app.get('/api/stats', withData(
     () => useDatabase ? getIndexedNetworkStats(pool) : Promise.resolve({
       windowStartHeight: 0, windowEndHeight: 0, windowStart: null, windowEnd: null,

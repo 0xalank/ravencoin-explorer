@@ -47,7 +47,7 @@ test('skips completed schema DDL during concurrent service startup', async () =>
     async query(sql) {
       queries.push(sql)
       if (sql.includes('to_regclass')) return { rows: [{ relation: 'schema_migrations' }] }
-      if (sql.includes('max(version)')) return { rows: [{ version: 3 }] }
+      if (sql.includes('max(version)')) return { rows: [{ version: 4 }] }
       return { rows: [] }
     },
     release() { released = true },
@@ -94,6 +94,7 @@ test('database readiness avoids history-wide counts used by full status', async 
   assert.equal(queries[0].includes('pg_stat_activity'), true)
 
   await databaseHealth(pool)
-  assert.equal(/count\s*\(/i.test(queries[1]), true)
+  assert.equal(queries[1].includes('sum(tx_count)'), true)
+  assert.equal(queries[1].includes('count(*) FROM transactions'), false)
   assert.equal(queries[1].includes('pg_database_size'), true)
 })

@@ -198,6 +198,29 @@ CREATE TABLE IF NOT EXISTS asset_transfers (
 CREATE INDEX IF NOT EXISTS asset_transfers_asset_recent_idx ON asset_transfers (asset_name, block_height DESC, tx_index DESC);
 CREATE INDEX IF NOT EXISTS asset_transfers_tx_idx ON asset_transfers (txid);
 
+-- Catch-up enriches these rows once after raw insertion. Leave space on new
+-- pages for HOT updates and keep write-heavy tables vacuumed aggressively.
+ALTER TABLE transactions SET (
+  fillfactor = 80, autovacuum_vacuum_scale_factor = 0.02, autovacuum_vacuum_threshold = 50000,
+  autovacuum_analyze_scale_factor = 0.01, autovacuum_analyze_threshold = 50000,
+  autovacuum_vacuum_cost_delay = 0, autovacuum_vacuum_cost_limit = 10000
+);
+ALTER TABLE tx_inputs SET (
+  fillfactor = 80, autovacuum_vacuum_scale_factor = 0.02, autovacuum_vacuum_threshold = 50000,
+  autovacuum_analyze_scale_factor = 0.01, autovacuum_analyze_threshold = 50000,
+  autovacuum_vacuum_cost_delay = 0, autovacuum_vacuum_cost_limit = 10000
+);
+ALTER TABLE tx_outputs SET (
+  fillfactor = 80, autovacuum_vacuum_scale_factor = 0.02, autovacuum_vacuum_threshold = 50000,
+  autovacuum_analyze_scale_factor = 0.01, autovacuum_analyze_threshold = 50000,
+  autovacuum_vacuum_cost_delay = 0, autovacuum_vacuum_cost_limit = 10000
+);
+ALTER TABLE address_balances SET (
+  fillfactor = 70, autovacuum_vacuum_scale_factor = 0.01, autovacuum_vacuum_threshold = 10000,
+  autovacuum_analyze_scale_factor = 0.01, autovacuum_analyze_threshold = 10000,
+  autovacuum_vacuum_cost_delay = 0, autovacuum_vacuum_cost_limit = 10000
+);
+
 -- Parallel aggregation workers prepare independent block ranges ahead of the
 -- public checkpoint.  A batch becomes API-visible only after the ordered
 -- reducer applies its balance deltas and advances sync_state.best_height in
@@ -236,4 +259,7 @@ INSERT INTO schema_migrations (version) VALUES (2)
 ON CONFLICT (version) DO NOTHING;
 
 INSERT INTO schema_migrations (version) VALUES (3)
+ON CONFLICT (version) DO NOTHING;
+
+INSERT INTO schema_migrations (version) VALUES (4)
 ON CONFLICT (version) DO NOTHING;
