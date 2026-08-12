@@ -1,7 +1,9 @@
 node_modules
 dist
 .env
+.env.txindex
 *.log
 *.tsbuildinfo
 .DS_Store
 brandkit/
+ops/txindex/raven.conf

@@ -1,0 +1,19 @@
+# Dedicated Ravencoin mainnet node used to produce txindex snapshots.
+server=1
+daemon=0
+prune=0
+txindex=1
+assetindex=1
+dbcache=8192
+
+# This builder makes outbound peer connections only. RPC remains inside the
+# container and is never published by compose.txindex.yaml.
+listen=0
+discover=0
+rpcbind=127.0.0.1
+rpcallowip=127.0.0.1/32
+rpcuser=replace-with-a-long-random-user
+rpcpassword=replace-with-a-different-long-random-password
+
+maxconnections=32
+logtimestamps=1

@@ -1,0 +1,78 @@
+name: ravencoin-txindex
+
+services:
+  ravend-txindex:
+    build:
+      context: .
+      dockerfile: Dockerfile.ravencoin
+      args:
+        RAVEN_REPOSITORY: ${RAVEN_REPOSITORY:-https://github.com/dominant-strategies/Ravencoin-Public.git}
+        RAVEN_COMMIT: ${RAVEN_COMMIT:-1ecb6598e8c14487676264b3e2ed91e4cc44c6cc}
+    image: dominant-ravencoin-node:${RAVEN_IMAGE_TAG:-1ecb659}
+    restart: unless-stopped
+    stop_grace_period: 5m
+    cpus: ${TXINDEX_CPUS:-8}
+    mem_limit: ${TXINDEX_MEMORY_LIMIT:-24g}
+    environment:
+      TXINDEX_REINDEX: ${TXINDEX_REINDEX:-false}
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        set -- -datadir=/data -conf=/etc/ravencoin/raven.conf -printtoconsole -onlynet=ipv4
+        if [ "$${TXINDEX_REINDEX:-false}" = "true" ] && [ ! -e /data/.txindex-reindex-started ]; then
+          set -- "$$@" -reindex
+        fi
+        exec ravend "$$@"
+      - --
+    volumes:
+      - type: bind
+        source: ${TXINDEX_DATA_DIR}
+        target: /data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${TXINDEX_CONFIG_FILE}
+        target: /etc/ravencoin/raven.conf
+        read_only: true
+        bind:
+          create_host_path: false
+    labels:
+      io.dominantstrategies.ravencoin-txindex.allowed-root: ${TXINDEX_ALLOWED_ROOT}
+      io.dominantstrategies.ravencoin-txindex.staging-dir: ${TXINDEX_STAGING_DIR}
+      io.dominantstrategies.ravencoin-txindex.snapshot-dir: ${TXINDEX_SNAPSHOT_DIR}
+    healthcheck:
+      test: ["CMD-SHELL", "raven-cli -datadir=/data -conf=/etc/ravencoin/raven.conf getblockchaininfo >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 60
+      start_period: 5m
+
+  snapshot-server:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "${TXINDEX_SNAPSHOT_BIND:-127.0.0.1}:${TXINDEX_SNAPSHOT_PORT:-3103}:8080"
+    volumes:
+      - type: bind
+        source: ${TXINDEX_SNAPSHOT_DIR}
+        target: /srv/snapshots
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./ops/txindex/nginx.conf
+        target: /etc/nginx/nginx.conf
+        read_only: true
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s

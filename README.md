@@ -114,9 +114,12 @@ pnpm compose:down    # stop the stack without deleting PostgreSQL data
 pnpm ops:reconcile   # sample indexed chain, balances, and assets against Core
 pnpm ops:monitor     # health, checkpoint staleness, temp I/O, and disk checks
 pnpm ops:snapshot    # verified custom-format PostgreSQL snapshot
+pnpm ops:txindex:init   # initialize private config and large-volume paths
+pnpm ops:txindex:status # status and historical txindex probe for snapshot node
 ```
 
 See [Explorer operations](docs/operations.md) for exact production commands, cron monitoring, RPC reconciliation after asset activation, off-host backup policy, and guarded restore drills.
+See [Txindex snapshots](docs/txindex-snapshots.md) for the isolated Core node and public snapshot workflow.
 
 ## API
 
