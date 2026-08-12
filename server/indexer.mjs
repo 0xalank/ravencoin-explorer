@@ -17,6 +17,8 @@ const PIPELINE_BATCH_SIZE = Math.max(RAW_BATCH_SIZE, AGGREGATION_BATCH_SIZE)
 const RAW_LEAD_BLOCKS = Math.max(PIPELINE_BATCH_SIZE, Number(process.env.INDEXER_RAW_LEAD_BLOCKS) || PIPELINE_BATCH_SIZE * 4)
 const POLL_MS = Math.max(1_000, Number(process.env.INDEXER_POLL_MS) || 5_000)
 const ASSET_PAGE_SIZE = Math.min(5_000, Math.max(100, Number(process.env.INDEXER_ASSET_PAGE_SIZE) || 1_000))
+const REORG_STATEMENT_TIMEOUT_MS = Math.min(86_400_000, Math.max(120_000,
+  Number(process.env.INDEXER_REORG_STATEMENT_TIMEOUT_MS) || 1_800_000))
 const sleep = (milliseconds, signal) => new Promise((resolve) => {
   if (signal?.aborted) return resolve()
   const timer = setTimeout(done, milliseconds)
@@ -452,6 +454,7 @@ export async function rollbackTo(pool, rpc, ancestorHeight) {
   try {
     await client.query('BEGIN')
     await client.query('SET LOCAL synchronous_commit = off')
+    await client.query("SELECT set_config('statement_timeout', $1, true)", [`${REORG_STATEMENT_TIMEOUT_MS}ms`])
     const state = await getState(client)
     const processedHeight = Math.min(Number(state.best_height), ancestorHeight)
     await setState(client, { status: 'reorg' })

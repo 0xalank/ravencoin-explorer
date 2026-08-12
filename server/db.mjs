@@ -11,7 +11,32 @@ let sharedPool
 // Bump this whenever schema.sql adds a new migration version. Completed
 // databases skip the idempotent DDL so API/indexer restarts cannot contend
 // with live writes for table locks.
-const LATEST_SCHEMA_VERSION = 4
+const LATEST_SCHEMA_VERSION = 5
+
+// These indexes back the referencing side of high-cardinality foreign keys.
+// Build them concurrently on an existing v4 database so an upgrade does not
+// block explorer reads while PostgreSQL scans hundreds of millions of rows.
+const ONLINE_SCHEMA_MIGRATIONS = [{
+  fromVersion: 4,
+  version: 5,
+  indexes: [
+    {
+      name: 'address_transactions_txid_idx',
+      create: 'CREATE INDEX CONCURRENTLY address_transactions_txid_idx ON public.address_transactions (txid)',
+      definitionFragments: ['ON public.address_transactions USING btree (txid)'],
+    },
+    {
+      name: 'address_activity_txid_idx',
+      create: 'CREATE INDEX CONCURRENTLY address_activity_txid_idx ON public.address_activity (txid)',
+      definitionFragments: ['ON public.address_activity USING btree (txid)'],
+    },
+    {
+      name: 'tx_outputs_spent_by_txid_idx',
+      create: 'CREATE INDEX CONCURRENTLY tx_outputs_spent_by_txid_idx ON public.tx_outputs (spent_by_txid) WHERE spent_by_txid IS NOT NULL',
+      definitionFragments: ['ON public.tx_outputs USING btree (spent_by_txid)', 'WHERE (spent_by_txid IS NOT NULL)'],
+    },
+  ],
+}]
 
 const DEFAULT_INDEXER_STALE_SECONDS = 600
 
@@ -70,20 +95,74 @@ export function getPool(options = {}) {
   return sharedPool
 }
 
+async function ensureOnlineIndex(client, index) {
+  const readIndex = async () => {
+    const { rows } = await client.query(`
+      SELECT i.indisready, i.indisvalid, i.indislive,
+        pg_get_indexdef(i.indexrelid) AS definition
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      JOIN pg_index i ON i.indexrelid = c.oid
+      WHERE n.nspname = 'public' AND c.relname = $1
+    `, [index.name])
+    return rows[0]
+  }
+
+  let existing = await readIndex()
+  if (existing?.indisready && existing?.indisvalid && existing?.indislive) {
+    if (!index.definitionFragments.every((fragment) => existing.definition.includes(fragment))) {
+      throw new Error(`Existing index ${index.name} does not match the required definition.`)
+    }
+    return
+  }
+  // A failed CREATE INDEX CONCURRENTLY leaves an invalid same-name relation.
+  // IF NOT EXISTS would silently accept it, so remove only that known remnant
+  // before retrying the deterministic definition.
+  if (existing) await client.query(`DROP INDEX CONCURRENTLY public.${index.name}`)
+  await client.query(index.create)
+  existing = await readIndex()
+  if (!existing?.indisready || !existing?.indisvalid || !existing?.indislive) {
+    throw new Error(`Concurrent index build did not produce a valid ${index.name}.`)
+  }
+}
+
 export async function migrate(pool = getPool()) {
   const client = await pool.connect()
+  let originalStatementTimeout
+  let cleanupError
   try {
+    const { rows: timeoutRows } = await client.query("SELECT current_setting('statement_timeout') AS value")
+    originalStatementTimeout = timeoutRows[0]?.value
+    // Existing explorer databases have hundreds of millions of rows. Let the
+    // online build finish and make other service starters wait on the advisory
+    // lock instead of churning on their normal short request timeout.
+    await client.query("SELECT set_config('statement_timeout', '0', false)")
     await client.query('SELECT pg_advisory_lock($1)', [1_884_202_018])
     const { rows: relationRows } = await client.query("SELECT to_regclass('public.schema_migrations') AS relation")
     if (relationRows[0]?.relation) {
       const { rows: versionRows } = await client.query('SELECT COALESCE(max(version), 0) AS version FROM schema_migrations')
-      if (Number(versionRows[0]?.version) >= LATEST_SCHEMA_VERSION) return
+      let version = Number(versionRows[0]?.version)
+      if (version >= LATEST_SCHEMA_VERSION) return
+      for (const migration of ONLINE_SCHEMA_MIGRATIONS) {
+        if (version !== migration.fromVersion) continue
+        for (const index of migration.indexes) await ensureOnlineIndex(client, index)
+        await client.query('INSERT INTO schema_migrations (version) VALUES ($1) ON CONFLICT (version) DO NOTHING', [migration.version])
+        version = migration.version
+      }
+      if (version >= LATEST_SCHEMA_VERSION) return
     }
     const schema = await fs.readFile(path.join(__dirname, 'schema.sql'), 'utf8')
     await client.query(schema)
   } finally {
-    await client.query('SELECT pg_advisory_unlock($1)', [1_884_202_018]).catch(() => {})
-    client.release()
+    try { await client.query('SELECT pg_advisory_unlock($1)', [1_884_202_018]) }
+    catch (error) { cleanupError = error }
+    if (originalStatementTimeout != null) {
+      try { await client.query("SELECT set_config('statement_timeout', $1, false)", [originalStatementTimeout]) }
+      catch (error) { cleanupError ??= error }
+    }
+    // pg clients accept an error here to destroy the connection instead of
+    // returning a session with statement_timeout=0 or a leaked advisory lock.
+    client.release(cleanupError)
   }
 }
 

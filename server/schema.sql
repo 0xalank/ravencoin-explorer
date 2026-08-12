@@ -117,6 +117,10 @@ CREATE TABLE IF NOT EXISTS address_transactions (
 
 CREATE INDEX IF NOT EXISTS address_transactions_recent_idx ON address_transactions (address, block_height DESC, tx_index DESC);
 CREATE INDEX IF NOT EXISTS address_transactions_window_idx ON address_transactions (block_height DESC, address);
+-- PostgreSQL does not add indexes for the referencing side of foreign keys.
+-- This one is required for transactions -> address_transactions cascades
+-- during a reorg; without it, every removed transaction scans the full table.
+CREATE INDEX IF NOT EXISTS address_transactions_txid_idx ON address_transactions (txid);
 
 CREATE TABLE IF NOT EXISTS address_activity (
   id bigserial PRIMARY KEY,
@@ -130,6 +134,10 @@ CREATE TABLE IF NOT EXISTS address_activity (
   amount numeric(38, 8) NOT NULL,
   UNIQUE (address, txid, direction, io_index, asset_name)
 );
+
+-- Keep transaction cascades bounded even after address_activity grows to
+-- hundreds of millions of rows.
+CREATE INDEX IF NOT EXISTS address_activity_txid_idx ON address_activity (txid);
 
 
 CREATE TABLE IF NOT EXISTS address_balances (
@@ -154,6 +162,12 @@ DROP INDEX IF EXISTS address_activity_history_idx;
 DROP INDEX IF EXISTS address_activity_asset_idx;
 DROP INDEX IF EXISTS address_balances_asset_idx;
 DROP INDEX IF EXISTS address_balances_rvn_idx;
+
+-- spent_by_txid is also a foreign-key reference to transactions. The primary
+-- key begins with the creating txid and cannot support ON DELETE SET NULL for
+-- the spending txid.
+CREATE INDEX IF NOT EXISTS tx_outputs_spent_by_txid_idx
+  ON tx_outputs (spent_by_txid) WHERE spent_by_txid IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS assets (
   name text PRIMARY KEY,
@@ -262,4 +276,7 @@ INSERT INTO schema_migrations (version) VALUES (3)
 ON CONFLICT (version) DO NOTHING;
 
 INSERT INTO schema_migrations (version) VALUES (4)
+ON CONFLICT (version) DO NOTHING;
+
+INSERT INTO schema_migrations (version) VALUES (5)
 ON CONFLICT (version) DO NOTHING;
