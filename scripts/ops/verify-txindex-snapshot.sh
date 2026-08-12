@@ -8,7 +8,8 @@ Usage: bash scripts/ops/verify-txindex-snapshot.sh ARCHIVE.tar.zst [--boot]
 Requires and verifies the SHA-256 sidecar and versioned manifest, tests the
 zstd/tar streams and safe archive layout, and optionally boots the extracted
 snapshot without networking. Boot mode compares height, hash, chainwork, Core
-version and the historical txindex probe with the manifest.
+version, the historical txindex probe, and the canonical asset-state probe
+with the manifest.
 
 Optional: TXINDEX_VERIFY_DIR, RAVEN_IMAGE_TAG, TXINDEX_BOOT_TIMEOUT_SECONDS.
 USAGE
@@ -40,6 +41,20 @@ manifest_assetindex="$(jq -r '.assetindex' "$manifest")"
 manifest_pruned="$(jq -r '.pruned' "$manifest")"
 [[ "$manifest_archive" == "$archive_name" && "$manifest_sha256" == "$archive_sha256" ]] || { echo "Manifest does not match archive/checksum." >&2; exit 1; }
 [[ "$manifest_txindex" == true && "$manifest_assetindex" == true && "$manifest_pruned" == false ]] || { echo "Manifest index/pruning flags are invalid." >&2; exit 1; }
+if ! jq -e '
+  .assetProbe as $probe |
+  ($probe | type) == "object" and
+  ($probe.name | type) == "string" and ($probe.name | length) > 0 and
+  ($probe.issuanceTxid | type) == "string" and ($probe.issuanceTxid | test("^[0-9a-fA-F]{64}$")) and
+  ($probe.blockHash | type) == "string" and ($probe.blockHash | test("^[0-9a-fA-F]{64}$")) and
+  ($probe.amount | type) == "number" and $probe.amount >= 0 and
+  ($probe.units | type) == "number" and $probe.units >= 0 and $probe.units <= 8 and $probe.units == ($probe.units | floor) and
+  ($probe.reissuable == 0 or $probe.reissuable == 1) and
+  ($probe.has_ipfs == 0 or $probe.has_ipfs == 1)
+' "$manifest" >/dev/null; then
+  echo "Manifest asset-state probe is missing or invalid." >&2
+  exit 1
+fi
 
 zstd -q -t "$archive"
 catalog="$(mktemp)"
@@ -121,6 +136,31 @@ if [[ "$boot" == "--boot" ]]; then
   transaction="$(docker exec "$container_name" raven-cli -datadir=/data -conf=/etc/ravencoin/raven.conf getrawtransaction "$probe_txid" true)"
   actual_block="$(printf '%s' "$transaction" | jq -r '.blockhash // empty')"
   [[ "$actual_block" == "$expected_block" ]] || { echo "Booted snapshot failed txindex probe." >&2; exit 1; }
+  asset_probe_name="$(jq -r '.assetProbe.name' "$manifest")"
+  asset_probe_txid="$(jq -r '.assetProbe.issuanceTxid' "$manifest")"
+  asset_probe_block="$(jq -r '.assetProbe.blockHash' "$manifest")"
+  asset_probe_amount="$(jq -c '.assetProbe.amount' "$manifest")"
+  asset_probe_units="$(jq -c '.assetProbe.units' "$manifest")"
+  asset_probe_reissuable="$(jq -c '.assetProbe.reissuable' "$manifest")"
+  asset_probe_has_ipfs="$(jq -c '.assetProbe.has_ipfs' "$manifest")"
+  asset_issuance="$(docker exec "$container_name" raven-cli -datadir=/data -conf=/etc/ravencoin/raven.conf getrawtransaction "$asset_probe_txid" true)"
+  actual_asset_block="$(printf '%s' "$asset_issuance" | jq -r '.blockhash // empty')"
+  [[ "$actual_asset_block" == "$asset_probe_block" ]] || { echo "Booted snapshot failed the asset issuance transaction probe." >&2; exit 1; }
+  asset_data="$(docker exec "$container_name" raven-cli -datadir=/data -conf=/etc/ravencoin/raven.conf getassetdata "$asset_probe_name")"
+  printf '%s' "$asset_data" | jq -e \
+    --arg name "$asset_probe_name" \
+    --argjson amount "$asset_probe_amount" \
+    --argjson units "$asset_probe_units" \
+    --argjson reissuable "$asset_probe_reissuable" \
+    --argjson has_ipfs "$asset_probe_has_ipfs" \
+    '.name == $name and
+     ((.amount | tonumber) == $amount) and
+     ((.units | tonumber) == $units) and
+     ((.reissuable | tonumber) == $reissuable) and
+     ((.has_ipfs | tonumber) == $has_ipfs)' >/dev/null || {
+      echo "Booted snapshot failed the asset-state probe for $asset_probe_name." >&2
+      exit 1
+    }
   echo "Boot verification passed at height $actual_height."
 fi
 

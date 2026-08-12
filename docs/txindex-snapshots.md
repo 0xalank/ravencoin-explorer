@@ -67,10 +67,14 @@ COMPOSE_ENV_FILE=.env.txindex pnpm ops:txindex:finalize
 ```
 
 Finalization creates a durable readiness marker, recreates the node without
-`-reindex`, and repeats the probe after a normal restart. This version of
-Ravencoin Core does not expose Bitcoin Core's `getindexinfo` RPC, so the probe
-retrieves a fully spent transaction from block 1 without supplying its block
-hash. That request fails on a non-txindex node.
+`-reindex`, and repeats both verification probes after a normal restart. This
+version of Ravencoin Core does not expose Bitcoin Core's `getindexinfo` RPC, so
+the txindex probe retrieves a fully spent transaction from block 1 without
+supplying its block hash. That request fails on a non-txindex node. The
+asset-state probe independently retrieves the `VOTE` issuance transaction and
+requires `getassetdata VOTE` to report amount `10000000`, units `8`,
+reissuable `1`, and `has_ipfs` `0`. Together they prove that both optional
+indexes survived the restart.
 
 ## Publish a consistent snapshot
 
@@ -87,12 +91,13 @@ The script refuses pruned, incomplete, stale, unverified, low-disk, or
 over-retention nodes. It makes a live staging copy, gracefully stops only the
 dedicated txindex node for the final rsync, restarts it immediately, then boots
 the exact staged copy offline. Only after its height, canonical hash, chainwork,
-Core version and historical txindex probe pass does it create and atomically
-publish a release directory containing:
+Core version, historical txindex probe, and canonical asset-state probe pass
+does it create and atomically publish a release directory containing:
 
 - `ravencoin-mainnet-txindex-H<height>-<UTC>.tar.zst`
 - a SHA-256 sidecar;
-- a versioned manifest with height, hash, chainwork, Core version and flags;
+- a versioned manifest with height, hash, chainwork, Core version, flags, and
+  the exact transaction and asset-state probes used for verification;
 - `latest.json` for clients.
 
 The static service defaults to `127.0.0.1:3103` for deliberate routing through
