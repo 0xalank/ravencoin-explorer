@@ -35,6 +35,8 @@ builder_restart_count="$(docker inspect --format '{{.RestartCount}}' "$builder_i
 }
 
 echo "Waiting for the uninterrupted Ravencoin txindex rebuild to finish."
+reindex_finished=false
+if "${compose[@]}" logs --no-color ravend-txindex | grep -q 'Reindexing finished'; then reindex_finished=true; fi
 while true; do
   container_id="$("${compose[@]}" ps -aq ravend-txindex)"
   [[ "$container_id" == "$builder_id" ]] || { echo "Txindex builder was replaced; refusing publication." >&2; exit 1; }
@@ -55,12 +57,13 @@ while true; do
     grep -E 'ERROR: ConnectBlock|ConnectTip\(\).*failed|Corruption:|Fatal LevelDB error' <<<"$logs" >&2
     exit 1
   fi
+  if grep -q 'Reindexing finished' <<<"$logs"; then reindex_finished=true; fi
   if chain_info="$("${compose[@]}" exec -T ravend-txindex raven-cli -datadir=/data -conf=/etc/ravencoin/raven.conf getblockchaininfo 2>/dev/null)"; then
     height="$(jq -r '.blocks' <<<"$chain_info")"
     headers="$(jq -r '.headers' <<<"$chain_info")"
     reference_height="$(docker exec "${TXINDEX_REFERENCE_CONTAINER:-ravencoin-explorer-ravend-1}" raven-cli -datadir=/data -conf=/etc/ravencoin/raven.conf getblockcount)"
     lag="$((reference_height - height))"
-    if [[ "$height" == "$headers" && "$lag" -ge 0 && "$lag" -le "$maximum_lag" ]]; then break; fi
+    if [[ "$reindex_finished" == true && "$height" == "$headers" && "$lag" -ge 0 && "$lag" -le "$maximum_lag" ]]; then break; fi
   fi
   sleep "$poll_seconds"
 done

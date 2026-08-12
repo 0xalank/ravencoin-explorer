@@ -33,6 +33,11 @@ if ! "${compose[@]}" exec -T ravend-txindex sh -c 'test -f /data/.txindex-rebuil
   echo "Refusing to finalize a node without uninterrupted rebuild evidence." >&2
   exit 1
 fi
+finalize_logs="$("${compose[@]}" logs --no-color --tail=10000 ravend-txindex)"
+if ! grep -q 'Reindexing finished' <<<"$finalize_logs" && ! "${compose[@]}" exec -T ravend-txindex test -f /data/.txindex-reindex-complete; then
+  echo "Refusing to finalize before Core explicitly reports Reindexing finished." >&2
+  exit 1
+fi
 chain_info="$("${compose[@]}" exec -T ravend-txindex raven-cli -datadir=/data -conf=/etc/ravencoin/raven.conf getblockchaininfo)"
 height="$(printf '%s' "$chain_info" | jq -r '.blocks')"
 headers="$(printf '%s' "$chain_info" | jq -r '.headers')"
