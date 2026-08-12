@@ -2,13 +2,19 @@ import 'dotenv/config'
 import { getPool, migrate, closePool } from './db.mjs'
 import { RavenRpc } from './rpc.mjs'
 import { atomicToDecimal, BalanceAccumulator, decimalToAtomic, normalizeOutput } from './indexer-utils.mjs'
-import { aggregateBlockRange, stageRawBlockBatch } from './pipeline.mjs'
+import {
+  getPreparedAggregationRanges, prepareAggregationBatch, reducePreparedAggregationBatch, stageRawBlockBatch,
+} from './pipeline.mjs'
 
 const STATE_ID = 'ravencoin-mainnet'
 const INDEXER_LOCK = 1_884_202_019
-const BATCH_SIZE = Math.min(2_000, Math.max(1, Number(process.env.INDEXER_BATCH_SIZE) || 20))
+const LEGACY_BATCH_SIZE = Math.min(2_000, Math.max(1, Number(process.env.INDEXER_BATCH_SIZE) || 20))
+const RAW_BATCH_SIZE = Math.min(2_000, Math.max(1, Number(process.env.INDEXER_RAW_BATCH_SIZE) || LEGACY_BATCH_SIZE))
+const AGGREGATION_BATCH_SIZE = Math.min(2_000, Math.max(1, Number(process.env.INDEXER_AGGREGATION_BATCH_SIZE) || LEGACY_BATCH_SIZE))
+const AGGREGATION_CONCURRENCY = Math.min(8, Math.max(1, Number(process.env.INDEXER_AGGREGATION_CONCURRENCY) || 1))
 const FETCH_CONCURRENCY = Math.min(16, Math.max(1, Number(process.env.INDEXER_FETCH_CONCURRENCY) || 1))
-const RAW_LEAD_BLOCKS = Math.max(BATCH_SIZE, Number(process.env.INDEXER_RAW_LEAD_BLOCKS) || BATCH_SIZE * 4)
+const PIPELINE_BATCH_SIZE = Math.max(RAW_BATCH_SIZE, AGGREGATION_BATCH_SIZE)
+const RAW_LEAD_BLOCKS = Math.max(PIPELINE_BATCH_SIZE, Number(process.env.INDEXER_RAW_LEAD_BLOCKS) || PIPELINE_BATCH_SIZE * 4)
 const POLL_MS = Math.max(1_000, Number(process.env.INDEXER_POLL_MS) || 5_000)
 const ASSET_PAGE_SIZE = Math.min(5_000, Math.max(100, Number(process.env.INDEXER_ASSET_PAGE_SIZE) || 1_000))
 const sleep = (milliseconds, signal) => new Promise((resolve) => {
@@ -24,6 +30,29 @@ const sleep = (milliseconds, signal) => new Promise((resolve) => {
 
 const asJson = (rows) => JSON.stringify(rows)
 const outputKey = (txid, vout) => `${txid}:${vout}`
+
+export function findNextAggregationRange(firstHeight, lastHeight, batchSize, reservedRanges = []) {
+  let cursor = firstHeight
+  const reserved = [...reservedRanges].sort((left, right) => left.firstHeight - right.firstHeight)
+  for (const range of reserved) {
+    if (range.lastHeight < cursor) continue
+    if (range.firstHeight > cursor) {
+      return { firstHeight: cursor, lastHeight: Math.min(lastHeight, cursor + batchSize - 1, range.firstHeight - 1) }
+    }
+    cursor = Math.max(cursor, range.lastHeight + 1)
+    if (cursor > lastHeight) return null
+  }
+  return cursor <= lastHeight
+    ? { firstHeight: cursor, lastHeight: Math.min(lastHeight, cursor + batchSize - 1) }
+    : null
+}
+
+export function isRetryableAggregationError(error) {
+  const message = String(error?.message ?? error).toLowerCase()
+  return error?.code === '54000'
+    || (error?.code === '57014' && message.includes('statement timeout'))
+    || message.includes('total size of jsonb array elements exceeds')
+}
 
 async function insertJson(client, rows, sql) {
   if (rows.length) await client.query(sql, [asJson(rows)])
@@ -432,6 +461,7 @@ export async function rollbackTo(pool, rpc, ancestorHeight) {
     // full history size.
     const addresses = (await client.query('SELECT DISTINCT address FROM address_transactions WHERE block_height > $1', [ancestorHeight])).rows.map((row) => row.address)
     affectedAssets = (await client.query("SELECT DISTINCT asset_name FROM asset_transfers WHERE block_height > $1 AND transfer_type IN ('issue', 'reissue')", [ancestorHeight])).rows.map((row) => row.asset_name)
+    await client.query('DELETE FROM aggregation_batches WHERE first_height > $1 OR last_height > $1', [ancestorHeight])
     await client.query('DELETE FROM blocks WHERE height > $1', [ancestorHeight])
     if (affectedAssets.length) {
       await client.query('DELETE FROM assets WHERE name = ANY($1::text[])', [affectedAssets])
@@ -448,8 +478,10 @@ export async function rollbackTo(pool, rpc, ancestorHeight) {
           sum(CASE WHEN direction = 'receive' THEN amount ELSE -amount END),
           sum(CASE WHEN direction = 'receive' THEN amount ELSE 0 END),
           sum(CASE WHEN direction = 'send' THEN amount ELSE 0 END), max(block_height)
-        FROM address_activity WHERE address = ANY($1::text[]) GROUP BY address, asset_name
-      `, [addresses])
+        FROM address_activity
+        WHERE address = ANY($1::text[]) AND block_height <= $2
+        GROUP BY address, asset_name
+      `, [addresses, processedHeight])
     }
     const processedTip = processedHeight >= 0 ? (await client.query('SELECT hash FROM blocks WHERE height = $1', [processedHeight])).rows[0] : null
     const rawTip = ancestorHeight >= 0 ? (await client.query('SELECT hash FROM blocks WHERE height = $1', [ancestorHeight])).rows[0] : null
@@ -469,7 +501,11 @@ export async function rollbackTo(pool, rpc, ancestorHeight) {
 export class RavencoinIndexer {
   constructor({
     pool = getPool(), rpc = new RavenRpc(), fetchBlocks = fetchBlockBatch,
-    stageBlocks = stageRawBlockBatch, aggregateBlocks = aggregateBlockRange,
+    stageBlocks = stageRawBlockBatch, aggregateBlocks = null,
+    prepareBlocks = prepareAggregationBatch, reduceBlocks = reducePreparedAggregationBatch,
+    listPreparedRanges = getPreparedAggregationRanges,
+    aggregationBatchSize = AGGREGATION_BATCH_SIZE,
+    aggregationConcurrency = AGGREGATION_CONCURRENCY,
     drainAssets = drainAssetQueue,
   } = {}) {
     this.pool = pool
@@ -477,6 +513,11 @@ export class RavencoinIndexer {
     this.fetchBlocks = fetchBlocks
     this.stageBlocks = stageBlocks
     this.aggregateBlocks = aggregateBlocks
+    this.prepareBlocks = prepareBlocks
+    this.reduceBlocks = reduceBlocks
+    this.listPreparedRanges = listPreparedRanges
+    this.aggregationBatchSize = Math.min(2_000, Math.max(1, Number(aggregationBatchSize) || AGGREGATION_BATCH_SIZE))
+    this.aggregationConcurrency = Math.min(8, Math.max(1, Number(aggregationConcurrency) || AGGREGATION_CONCURRENCY))
     this.drainAssets = drainAssets
     this.stopping = false
     this.cycleController = null
@@ -552,14 +593,14 @@ export class RavencoinIndexer {
         if (stagedHeight >= chain.blocks) return
         if (stagedHeight - processedHeight >= RAW_LEAD_BLOCKS) { await sleep(100, signal); continue }
         const first = stagedHeight + 1
-        const last = Math.min(chain.blocks, first + BATCH_SIZE - 1, processedHeight + RAW_LEAD_BLOCKS)
+        const last = Math.min(chain.blocks, first + RAW_BATCH_SIZE - 1, processedHeight + RAW_LEAD_BLOCKS)
         const blocks = await this.fetchBlocks(this.rpc, first, last)
         if (signal.aborted) return
         await this.stageBlocks(this.pool, blocks, current.raw_hash?.trim() ?? current.best_hash?.trim() ?? null)
-        if (last % 5_000 < BATCH_SIZE) console.log(`Raw block data ${last.toLocaleString()} / ${chain.blocks.toLocaleString()}`)
+        if (last % 5_000 < RAW_BATCH_SIZE) console.log(`Raw block data ${last.toLocaleString()} / ${chain.blocks.toLocaleString()}`)
       }
     }
-    const aggregate = async () => {
+    const aggregateSequentially = async () => {
       while (!this.stopping && !signal.aborted) {
         const current = await getState(this.pool)
         if (signal.aborted) return
@@ -568,11 +609,89 @@ export class RavencoinIndexer {
         const stagedHeight = Number(current.raw_height)
         if (stagedHeight <= processedHeight) { await sleep(100, signal); continue }
         const first = processedHeight + 1
-        const last = Math.min(stagedHeight, first + BATCH_SIZE - 1, chain.blocks)
+        const last = Math.min(stagedHeight, first + this.aggregationBatchSize - 1, chain.blocks)
         await this.aggregateBlocks(this.pool, first, last)
-        if (last % 1_000 < BATCH_SIZE) console.log(`Indexed block ${last.toLocaleString()} / ${chain.blocks.toLocaleString()}`)
+        if (last % 1_000 < this.aggregationBatchSize) console.log(`Indexed block ${last.toLocaleString()} / ${chain.blocks.toLocaleString()}`)
       }
     }
+    const aggregateInParallel = async () => {
+      const active = new Map()
+      let preparationError = null
+      let adaptiveBatchSize = this.aggregationBatchSize
+      const startPreparation = (range) => {
+        const key = `${range.firstHeight}-${range.lastHeight}`
+        const startedAt = performance.now()
+        const task = this.prepareBlocks(this.pool, range.firstHeight, range.lastHeight)
+          .then(() => console.log(`Prepared blocks ${range.firstHeight.toLocaleString()}-${range.lastHeight.toLocaleString()} in ${Math.round(performance.now() - startedAt).toLocaleString()} ms`))
+          .catch((error) => {
+            const blockCount = range.lastHeight - range.firstHeight + 1
+            if (blockCount > 1 && isRetryableAggregationError(error)) {
+              adaptiveBatchSize = Math.max(1, Math.floor(blockCount / 2))
+              console.warn(`Aggregation range ${range.firstHeight.toLocaleString()}-${range.lastHeight.toLocaleString()} was too dense; retrying with ${adaptiveBatchSize.toLocaleString()}-block batches.`)
+              return
+            }
+            preparationError ??= error
+            failCycle(error)
+          })
+          .finally(() => active.delete(key))
+        active.set(key, { ...range, task })
+      }
+
+      try {
+        while (!this.stopping && !signal.aborted) {
+          if (preparationError) throw preparationError
+
+          let reduced = null
+          do {
+            reduced = await this.reduceBlocks(this.pool)
+            if (reduced && reduced.lastHeight % 1_000 < this.aggregationBatchSize) {
+              console.log(`Indexed block ${reduced.lastHeight.toLocaleString()} / ${chain.blocks.toLocaleString()}`)
+            }
+          } while (reduced && !this.stopping && !signal.aborted)
+          if (this.stopping || signal.aborted) break
+
+          const current = await getState(this.pool)
+          const processedHeight = Number(current.best_height)
+          if (processedHeight >= chain.blocks) {
+            if (!active.size) return
+            await Promise.race([...active.values()].map(({ task }) => task))
+            continue
+          }
+          const stagedHeight = Math.min(Number(current.raw_height), chain.blocks)
+          if (stagedHeight > processedHeight) {
+            const prepared = await this.listPreparedRanges(this.pool, processedHeight + 1, stagedHeight)
+            const reservations = new Map()
+            for (const range of [...prepared, ...active.values()]) {
+              reservations.set(`${range.firstHeight}-${range.lastHeight}`, {
+                firstHeight: range.firstHeight, lastHeight: range.lastHeight,
+              })
+            }
+            while (active.size < this.aggregationConcurrency) {
+              const range = findNextAggregationRange(
+                processedHeight + 1, stagedHeight, adaptiveBatchSize, [...reservations.values()],
+              )
+              if (!range) break
+              reservations.set(`${range.firstHeight}-${range.lastHeight}`, range)
+              startPreparation(range)
+            }
+          }
+
+          if (preparationError) throw preparationError
+          if (active.size) {
+            await Promise.race([
+              ...active.values().map(({ task }) => task),
+              sleep(100, signal),
+            ])
+          } else {
+            await sleep(100, signal)
+          }
+        }
+      } finally {
+        await Promise.allSettled([...active.values()].map(({ task }) => task))
+      }
+      if (preparationError) throw preparationError
+    }
+    const aggregate = this.aggregateBlocks ? aggregateSequentially : aggregateInParallel
     const assets = async () => {
       while (!this.stopping && !signal.aborted && !pipelineDone) {
         try {

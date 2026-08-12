@@ -22,6 +22,9 @@ function indexerWorkMem() {
 
 async function configureRebuildableTransaction(client) {
   await client.query('SET LOCAL synchronous_commit = off')
+  // The historical batch statements are short-lived and repeatedly planned.
+  // PostgreSQL's JIT compilation cost is larger than its execution win here.
+  await client.query('SET LOCAL jit = off')
   await client.query("SELECT set_config('work_mem', $1, true)", [indexerWorkMem()])
 }
 
@@ -179,20 +182,55 @@ export async function stageRawBlockBatch(pool, blocks, expectedPreviousHash) {
   }
 }
 
-export async function aggregateBlockRange(pool, firstHeight, lastHeight) {
-  if (lastHeight < firstHeight) return { assetNames: [], transactions: 0 }
+export async function getPreparedAggregationRanges(pool, minimumHeight, maximumHeight) {
+  const { rows } = await pool.query(`
+    SELECT first_height, last_height
+    FROM aggregation_batches
+    WHERE status = 'prepared' AND last_height >= $1 AND first_height <= $2
+    ORDER BY first_height
+  `, [minimumHeight, maximumHeight])
+  return rows.map((row) => ({ firstHeight: Number(row.first_height), lastHeight: Number(row.last_height) }))
+}
+
+export async function prepareAggregationBatch(pool, firstHeight, lastHeight) {
+  if (lastHeight < firstHeight) return { assetNames: [], transactions: 0, alreadyPrepared: true }
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
     await configureRebuildableTransaction(client)
+    const { rows: existingRows } = await client.query(`
+      SELECT first_height, last_height, asset_names, transaction_count, status
+      FROM aggregation_batches WHERE first_height = $1
+    `, [firstHeight])
+    const existing = existingRows[0]
+    if (existing) {
+      if (Number(existing.last_height) !== lastHeight) {
+        throw new Error(`Aggregation batch ${firstHeight} already ends at ${existing.last_height}, not ${lastHeight}`)
+      }
+      await client.query('COMMIT')
+      return {
+        assetNames: existing.asset_names ?? [], transactions: Number(existing.transaction_count) || 0,
+        alreadyPrepared: true, status: existing.status,
+      }
+    }
+
     const { rows: stateRows } = await client.query('SELECT best_height, raw_height FROM sync_state WHERE id = $1', [STATE_ID])
     const state = stateRows[0]
-    if (!state || Number(state.best_height) + 1 !== firstHeight) throw new Error(`Aggregation checkpoint mismatch at height ${firstHeight}`)
+    if (!state) throw new Error('Missing Ravencoin synchronization state')
+    if (firstHeight <= Number(state.best_height)) throw new Error(`Cannot prepare an already indexed height ${firstHeight}`)
     if (lastHeight > Number(state.raw_height)) throw new Error(`Cannot aggregate past raw height ${state.raw_height}`)
 
-    // Capture only activity inserted by this transaction. Downstream address rows and
-    // balance deltas can then be derived from this bounded batch instead of scanning
-    // the ever-growing address_activity table by block height.
+    const { rows: tipRows } = await client.query('SELECT hash FROM blocks WHERE height = $1', [lastHeight])
+    if (!tipRows[0]) throw new Error(`Missing staged block ${lastHeight}`)
+    const tipHash = tipRows[0].hash.trim()
+    await client.query(`
+      INSERT INTO aggregation_batches (first_height, last_height, tip_hash)
+      VALUES ($1, $2, $3)
+    `, [firstHeight, lastHeight, tipHash])
+
+    // Capture every activity row owned by this bounded batch. The no-op conflict
+    // update matters after a reorg lands inside a prepared range: the canonical
+    // prefix can already exist even though its completed-batch record was removed.
     await client.query(`
       CREATE TEMP TABLE IF NOT EXISTS batch_address_activity (
         address text NOT NULL,
@@ -205,6 +243,7 @@ export async function aggregateBlockRange(pool, firstHeight, lastHeight) {
         amount numeric(38, 8) NOT NULL
       ) ON COMMIT DELETE ROWS
     `)
+    await client.query('TRUNCATE batch_address_activity')
 
     // Resolve every input through the composite tx_outputs(txid, vout_index) primary key.
     await client.query(`
@@ -255,7 +294,8 @@ export async function aggregateBlockRange(pool, firstHeight, lastHeight) {
         SELECT a.address, t.txid, t.block_height, t.tx_index, o.vout_index, 'receive', o.asset_name, o.asset_amount
         FROM transactions t JOIN tx_outputs o USING (txid) JOIN output_addresses a USING (txid, vout_index)
         WHERE t.block_height BETWEEN $1 AND $2 AND o.asset_name IS NOT NULL AND o.asset_amount <> 0
-        ON CONFLICT (address, txid, direction, io_index, asset_name) DO NOTHING
+        ON CONFLICT (address, txid, direction, io_index, asset_name) DO UPDATE SET
+          block_height = EXCLUDED.block_height, tx_index = EXCLUDED.tx_index, amount = EXCLUDED.amount
         RETURNING address, txid, block_height, tx_index, io_index, direction, asset_name, amount
       )
       INSERT INTO batch_address_activity (address, txid, block_height, tx_index, io_index, direction, asset_name, amount)
@@ -272,7 +312,8 @@ export async function aggregateBlockRange(pool, firstHeight, lastHeight) {
         SELECT a.address, t.txid, t.block_height, t.tx_index, i.vin_index, 'send', i.asset_name, i.asset_amount
         FROM transactions t JOIN tx_inputs i USING (txid) CROSS JOIN LATERAL unnest(i.addresses) AS a(address)
         WHERE t.block_height BETWEEN $1 AND $2 AND i.asset_name IS NOT NULL AND i.asset_amount <> 0
-        ON CONFLICT (address, txid, direction, io_index, asset_name) DO NOTHING
+        ON CONFLICT (address, txid, direction, io_index, asset_name) DO UPDATE SET
+          block_height = EXCLUDED.block_height, tx_index = EXCLUDED.tx_index, amount = EXCLUDED.amount
         RETURNING address, txid, block_height, tx_index, io_index, direction, asset_name, amount
       )
       INSERT INTO batch_address_activity (address, txid, block_height, tx_index, io_index, direction, asset_name, amount)
@@ -282,7 +323,8 @@ export async function aggregateBlockRange(pool, firstHeight, lastHeight) {
     await client.query(`
       INSERT INTO address_transactions (address, txid, block_height, tx_index)
       SELECT DISTINCT address, txid, block_height, tx_index FROM batch_address_activity
-      ON CONFLICT DO NOTHING
+      ON CONFLICT (address, txid) DO UPDATE SET
+        block_height = EXCLUDED.block_height, tx_index = EXCLUDED.tx_index
     `)
 
     await client.query(`
@@ -294,14 +336,13 @@ export async function aggregateBlockRange(pool, firstHeight, lastHeight) {
           max(block_height) AS updated_height
         FROM batch_address_activity GROUP BY address, asset_name
       )
-      INSERT INTO address_balances (address, asset_name, balance, received, sent, updated_height)
-      SELECT address, asset_name, balance, received, sent, updated_height FROM changes
-      ON CONFLICT (address, asset_name) DO UPDATE SET
-        balance = address_balances.balance + EXCLUDED.balance,
-        received = address_balances.received + EXCLUDED.received,
-        sent = address_balances.sent + EXCLUDED.sent,
-        updated_height = GREATEST(address_balances.updated_height, EXCLUDED.updated_height)
-    `)
+      INSERT INTO aggregation_balance_deltas
+        (batch_first_height, address, asset_name, balance, received, sent, updated_height)
+      SELECT $1, address, asset_name, balance, received, sent, updated_height FROM changes
+      ON CONFLICT (batch_first_height, address, asset_name) DO UPDATE SET
+        balance = EXCLUDED.balance, received = EXCLUDED.received, sent = EXCLUDED.sent,
+        updated_height = EXCLUDED.updated_height
+    `, [firstHeight])
 
     const { rows: assetRows } = await client.query(`
       WITH input_assets AS MATERIALIZED (
@@ -327,29 +368,104 @@ export async function aggregateBlockRange(pool, firstHeight, lastHeight) {
         JOIN output_assets a ON a.txid = o.txid AND a.vout_index = o.vout_index
         LEFT JOIN input_assets i ON i.txid = o.txid AND i.asset_name = o.asset_name
         WHERE t.block_height BETWEEN $1 AND $2 AND o.asset_name IS NOT NULL
-        ON CONFLICT (txid, vout_index, asset_name) DO NOTHING RETURNING asset_name
+        ON CONFLICT (txid, vout_index, asset_name) DO UPDATE SET
+          block_height = EXCLUDED.block_height, tx_index = EXCLUDED.tx_index,
+          transfer_type = EXCLUDED.transfer_type, amount = EXCLUDED.amount,
+          from_addresses = EXCLUDED.from_addresses, to_addresses = EXCLUDED.to_addresses
+        RETURNING asset_name
       )
       SELECT DISTINCT asset_name FROM inserted
     `, [firstHeight, lastHeight])
 
-    if (assetRows.length) await client.query(`
-      INSERT INTO asset_sync_queue (asset_name, seen_height)
-      SELECT unnest($1::text[]), $2::bigint
-      ON CONFLICT (asset_name) DO UPDATE SET seen_height = GREATEST(asset_sync_queue.seen_height, EXCLUDED.seen_height), updated_at = now()
-    `, [assetRows.map((row) => row.asset_name), lastHeight])
-
-    const { rows: tipRows } = await client.query('SELECT hash FROM blocks WHERE height = $1', [lastHeight])
-    if (!tipRows[0]) throw new Error(`Missing staged block ${lastHeight}`)
+    const assetNames = assetRows.map((row) => row.asset_name)
     await client.query(`
-      UPDATE sync_state SET best_height = $2, best_hash = $3, indexed_at = now(), status = 'syncing', last_error = NULL, updated_at = now()
-      WHERE id = $1
-    `, [STATE_ID, lastHeight, tipRows[0].hash.trim()])
+      UPDATE aggregation_batches SET asset_names = $2, transaction_count = $3, prepared_at = now()
+      WHERE first_height = $1
+    `, [firstHeight, assetNames, transactionCount ?? 0])
     await client.query('COMMIT')
-    return { assetNames: assetRows.map((row) => row.asset_name), transactions: transactionCount ?? 0 }
+    return { assetNames, transactions: transactionCount ?? 0, alreadyPrepared: false }
   } catch (error) {
     await client.query('ROLLBACK').catch(() => {})
     throw error
   } finally {
     client.release()
   }
+}
+
+export async function reducePreparedAggregationBatch(pool) {
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    await configureRebuildableTransaction(client)
+    const { rows: stateRows } = await client.query(`
+      SELECT best_height FROM sync_state WHERE id = $1 FOR UPDATE
+    `, [STATE_ID])
+    const state = stateRows[0]
+    if (!state) throw new Error('Missing Ravencoin synchronization state')
+    const firstHeight = Number(state.best_height) + 1
+    const { rows: batchRows } = await client.query(`
+      SELECT first_height, last_height, tip_hash, asset_names, transaction_count
+      FROM aggregation_batches WHERE first_height = $1 AND status = 'prepared'
+    `, [firstHeight])
+    const batch = batchRows[0]
+    if (!batch) {
+      await client.query('COMMIT')
+      return null
+    }
+    const lastHeight = Number(batch.last_height)
+    const { rows: tipRows } = await client.query('SELECT hash FROM blocks WHERE height = $1', [lastHeight])
+    if (!tipRows[0] || tipRows[0].hash.trim() !== batch.tip_hash.trim()) {
+      throw new Error(`Prepared aggregation batch ${firstHeight}-${lastHeight} no longer matches the staged chain`)
+    }
+
+    await client.query(`
+      INSERT INTO address_balances (address, asset_name, balance, received, sent, updated_height)
+      SELECT address, asset_name, balance, received, sent, updated_height
+      FROM aggregation_balance_deltas WHERE batch_first_height = $1
+      ON CONFLICT (address, asset_name) DO UPDATE SET
+        balance = address_balances.balance + EXCLUDED.balance,
+        received = address_balances.received + EXCLUDED.received,
+        sent = address_balances.sent + EXCLUDED.sent,
+        updated_height = GREATEST(address_balances.updated_height, EXCLUDED.updated_height)
+    `, [firstHeight])
+
+    if (batch.asset_names?.length) await client.query(`
+      INSERT INTO asset_sync_queue (asset_name, seen_height)
+      SELECT unnest($1::text[]), $2::bigint
+      ON CONFLICT (asset_name) DO UPDATE SET
+        seen_height = GREATEST(asset_sync_queue.seen_height, EXCLUDED.seen_height), updated_at = now()
+    `, [batch.asset_names, lastHeight])
+
+    await client.query(`
+      UPDATE sync_state SET best_height = $2, best_hash = $3, indexed_at = now(),
+        status = 'syncing', last_error = NULL, updated_at = now()
+      WHERE id = $1
+    `, [STATE_ID, lastHeight, batch.tip_hash.trim()])
+    await client.query(`
+      UPDATE aggregation_batches SET status = 'reduced', reduced_at = now()
+      WHERE first_height = $1
+    `, [firstHeight])
+    await client.query('DELETE FROM aggregation_balance_deltas WHERE batch_first_height = $1', [firstHeight])
+    await client.query('COMMIT')
+    return {
+      firstHeight, lastHeight, assetNames: batch.asset_names ?? [],
+      transactions: Number(batch.transaction_count) || 0,
+    }
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {})
+    throw error
+  } finally {
+    client.release()
+  }
+}
+
+// Kept as a small sequential compatibility surface for tests and maintenance
+// tools. Production uses parallel preparation plus the ordered reducer.
+export async function aggregateBlockRange(pool, firstHeight, lastHeight) {
+  const prepared = await prepareAggregationBatch(pool, firstHeight, lastHeight)
+  const reduced = await reducePreparedAggregationBatch(pool)
+  if (!reduced || reduced.firstHeight !== firstHeight || reduced.lastHeight !== lastHeight) {
+    throw new Error(`Aggregation checkpoint mismatch at height ${firstHeight}`)
+  }
+  return prepared
 }

@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { RavencoinIndexer, findCommonAncestor, withIndexerLock } from './indexer.mjs'
+import {
+  RavencoinIndexer, findCommonAncestor, findNextAggregationRange, isRetryableAggregationError, withIndexerLock,
+} from './indexer.mjs'
 
 function statePool(state, updates) {
   return {
@@ -14,6 +16,91 @@ function statePool(state, updates) {
     },
   }
 }
+
+test('parallel range planner fills durable gaps without overlapping completed work', () => {
+  assert.deepEqual(findNextAggregationRange(100, 499, 100, [
+    { firstHeight: 100, lastHeight: 199 },
+    { firstHeight: 300, lastHeight: 399 },
+  ]), { firstHeight: 200, lastHeight: 299 })
+  assert.deepEqual(findNextAggregationRange(100, 450, 100, [
+    { firstHeight: 100, lastHeight: 199 },
+    { firstHeight: 200, lastHeight: 299 },
+    { firstHeight: 300, lastHeight: 399 },
+  ]), { firstHeight: 400, lastHeight: 450 })
+  assert.equal(findNextAggregationRange(100, 399, 100, [
+    { firstHeight: 100, lastHeight: 199 },
+    { firstHeight: 200, lastHeight: 399 },
+  ]), null)
+})
+
+test('only retries aggregation failures that a smaller range can resolve', () => {
+  assert.equal(isRetryableAggregationError(Object.assign(new Error('canceling statement due to statement timeout'), { code: '57014' })), true)
+  assert.equal(isRetryableAggregationError(Object.assign(new Error('program limit exceeded'), { code: '54000' })), true)
+  assert.equal(isRetryableAggregationError(new Error('total size of jsonb array elements exceeds the maximum')), true)
+  assert.equal(isRetryableAggregationError(Object.assign(new Error('canceling statement due to user request'), { code: '57014' })), false)
+  assert.equal(isRetryableAggregationError(Object.assign(new Error('unique violation'), { code: '23505' })), false)
+})
+
+test('prepares batches concurrently but reduces their checkpoints in chain order', async () => {
+  const rawHash = 'd'.repeat(64)
+  const state = {
+    best_height: -1, best_hash: null, raw_height: 3, raw_hash: rawHash,
+    status: 'syncing', started_at: new Date(),
+  }
+  const updates = []
+  const prepared = new Map()
+  const reductions = []
+  let activePreparations = 0
+  let maxPreparations = 0
+  const pool = {
+    async query(sql, values = []) {
+      if (sql.startsWith('SELECT * FROM sync_state')) return { rows: [{ ...state }] }
+      if (sql.startsWith('UPDATE sync_state SET')) {
+        updates.push({ sql, values })
+        return { rows: [] }
+      }
+      throw new Error(`Unexpected query: ${sql}`)
+    },
+  }
+  const indexer = new RavencoinIndexer({
+    pool,
+    rpc: { async call(method) {
+      if (method === 'getblockchaininfo') return { chain: 'main', blocks: 3 }
+      if (method === 'getblockhash') return rawHash
+      throw new Error(`Unexpected RPC call: ${method}`)
+    } },
+    aggregationBatchSize: 1,
+    aggregationConcurrency: 3,
+    async prepareBlocks(_pool, firstHeight, lastHeight) {
+      activePreparations += 1
+      maxPreparations = Math.max(maxPreparations, activePreparations)
+      await new Promise((resolve) => setTimeout(resolve, firstHeight === 0 ? 35 : 5))
+      prepared.set(firstHeight, lastHeight)
+      activePreparations -= 1
+    },
+    async listPreparedRanges(_pool, firstHeight, lastHeight) {
+      return [...prepared.entries()]
+        .filter(([first, last]) => last >= firstHeight && first <= lastHeight)
+        .map(([first, last]) => ({ firstHeight: first, lastHeight: last }))
+    },
+    async reduceBlocks() {
+      const firstHeight = Number(state.best_height) + 1
+      if (!prepared.has(firstHeight)) return null
+      const lastHeight = prepared.get(firstHeight)
+      prepared.delete(firstHeight)
+      state.best_height = lastHeight
+      reductions.push([firstHeight, lastHeight])
+      return { firstHeight, lastHeight }
+    },
+    async drainAssets() { return false },
+  })
+
+  await indexer.syncOnce()
+  assert.equal(maxPreparations, 3)
+  assert.deepEqual(reductions, [[0, 0], [1, 1], [2, 2], [3, 3]])
+  assert.equal(state.best_height, 3)
+  assert.equal(updates.some(({ values }) => values.includes('ready')), true)
+})
 
 test('cancels and awaits sibling workers before surfacing the first pipeline error', async () => {
   const rootError = new Error('raw producer failed')

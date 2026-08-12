@@ -140,7 +140,8 @@ Successful responses include `meta.source`: `indexed`, `live`, or `demo`. Produc
 ## Operations
 
 - Raw ingestion resumes from `sync_state.raw_height`; aggregation resumes independently from `sync_state.best_height`.
-- `INDEXER_BATCH_SIZE` controls raw and aggregation transaction size. Start with `20` locally; the 64-core production profile uses `500`.
+- `INDEXER_BATCH_SIZE` remains the compatibility default for both pipeline stages. `INDEXER_RAW_BATCH_SIZE` and `INDEXER_AGGREGATION_BATCH_SIZE` override the raw-ingestion and aggregation transaction sizes independently.
+- `INDEXER_AGGREGATION_CONCURRENCY` controls how many block ranges are prepared in parallel. Balance deltas and the public checkpoint are still reduced strictly in chain order. Start with `1` locally; the 64-core production profile uses `4` workers with 100-block ranges.
 - `INDEXER_FETCH_CONCURRENCY` controls ordered parallel `getblock` RPC batches. Start with `1` locally; the production profile uses `8`.
 - `INDEXER_RAW_LEAD_BLOCKS` bounds how far raw ingestion may run ahead of fully aggregated explorer data.
 - `/api/health` returns `503` when the node/database is unavailable or the indexer is in an error state.

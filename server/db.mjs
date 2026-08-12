@@ -11,7 +11,7 @@ let sharedPool
 // Bump this whenever schema.sql adds a new migration version. Completed
 // databases skip the idempotent DDL so API/indexer restarts cannot contend
 // with live writes for table locks.
-const LATEST_SCHEMA_VERSION = 2
+const LATEST_SCHEMA_VERSION = 3
 
 const DEFAULT_INDEXER_STALE_SECONDS = 600
 

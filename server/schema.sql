@@ -198,8 +198,42 @@ CREATE TABLE IF NOT EXISTS asset_transfers (
 CREATE INDEX IF NOT EXISTS asset_transfers_asset_recent_idx ON asset_transfers (asset_name, block_height DESC, tx_index DESC);
 CREATE INDEX IF NOT EXISTS asset_transfers_tx_idx ON asset_transfers (txid);
 
+-- Parallel aggregation workers prepare independent block ranges ahead of the
+-- public checkpoint.  A batch becomes API-visible only after the ordered
+-- reducer applies its balance deltas and advances sync_state.best_height in
+-- the same transaction.  Prepared deltas are short-lived, but durable, so a
+-- process restart never has to guess whether a batch completed.
+CREATE TABLE IF NOT EXISTS aggregation_batches (
+  first_height bigint PRIMARY KEY,
+  last_height bigint NOT NULL UNIQUE REFERENCES blocks(height) ON DELETE CASCADE,
+  tip_hash char(64) NOT NULL,
+  status text NOT NULL DEFAULT 'prepared' CHECK (status IN ('prepared', 'reduced')),
+  asset_names text[] NOT NULL DEFAULT '{}',
+  transaction_count bigint NOT NULL DEFAULT 0,
+  prepared_at timestamptz NOT NULL DEFAULT now(),
+  reduced_at timestamptz,
+  CHECK (last_height >= first_height)
+);
+
+CREATE INDEX IF NOT EXISTS aggregation_batches_prepared_idx
+  ON aggregation_batches (first_height) WHERE status = 'prepared';
+
+CREATE TABLE IF NOT EXISTS aggregation_balance_deltas (
+  batch_first_height bigint NOT NULL REFERENCES aggregation_batches(first_height) ON DELETE CASCADE,
+  address text NOT NULL,
+  asset_name text NOT NULL,
+  balance numeric(38, 8) NOT NULL,
+  received numeric(38, 8) NOT NULL,
+  sent numeric(38, 8) NOT NULL,
+  updated_height bigint NOT NULL,
+  PRIMARY KEY (batch_first_height, address, asset_name)
+);
+
 INSERT INTO schema_migrations (version) VALUES (1)
 ON CONFLICT (version) DO NOTHING;
 
 INSERT INTO schema_migrations (version) VALUES (2)
+ON CONFLICT (version) DO NOTHING;
+
+INSERT INTO schema_migrations (version) VALUES (3)
 ON CONFLICT (version) DO NOTHING;

@@ -117,7 +117,7 @@ export async function getIndexedBlocks(pool, limit = 20, start) {
   const upper = start == null ? tip : Math.min(Number(start), tip)
   const { rows } = await pool.query(`
     SELECT b.*, n.hash AS next_hash, ($2::bigint - b.height + 1) AS confirmations
-    FROM blocks b LEFT JOIN blocks n ON n.height = b.height + 1
+    FROM blocks b LEFT JOIN blocks n ON n.height = b.height + 1 AND n.height <= $2
     WHERE b.height <= $1 ORDER BY b.height DESC LIMIT $3
   `, [upper, tip, limit])
   return rows.map((row) => mapBlock(row))
@@ -247,14 +247,16 @@ export async function getIndexedAddresses(pool, limit = 50, offset = 0) {
         LIMIT $1 OFFSET $2
       ), activity AS (
         SELECT a.address, count(*) AS transaction_count, max(a.block_height) AS last_activity_height
-        FROM address_transactions a JOIN ranked r USING (address)
+        FROM address_transactions a JOIN ranked r USING (address) CROSS JOIN sync_state s
+        WHERE s.id = 'ravencoin-mainnet' AND a.block_height <= s.best_height
         GROUP BY a.address
       ), mined AS (
         SELECT oa.address, count(DISTINCT t.block_height) AS blocks_mined
         FROM output_addresses oa
         JOIN transactions t USING (txid)
         JOIN ranked r USING (address)
-        WHERE t.tx_index = 0
+        CROSS JOIN sync_state s
+        WHERE s.id = 'ravencoin-mainnet' AND t.tx_index = 0 AND t.block_height <= s.best_height
         GROUP BY oa.address
       )
       SELECT r.*, COALESCE(a.transaction_count, 0) AS transaction_count,
@@ -307,7 +309,8 @@ export async function getIndexedBlock(pool, id) {
   const isHeight = /^\d+$/.test(String(id))
   const { rows } = await pool.query(`
     SELECT b.*, n.hash AS next_hash, (s.best_height - b.height + 1) AS confirmations
-    FROM blocks b CROSS JOIN sync_state s LEFT JOIN blocks n ON n.height = b.height + 1
+    FROM blocks b CROSS JOIN sync_state s
+    LEFT JOIN blocks n ON n.height = b.height + 1 AND n.height <= s.best_height
     WHERE s.id = 'ravencoin-mainnet' AND b.height <= s.best_height AND ${isHeight ? 'b.height = $1' : 'b.hash = $1'} LIMIT 1
   `, [isHeight ? Number(id) : id])
   if (!rows[0]) throw Object.assign(new Error('Block not found.'), { status: 404, code: -5 })
@@ -351,18 +354,24 @@ export async function getIndexedTransaction(pool, txid) {
 export async function getIndexedAddress(pool, address) {
   const [{ rows: balances }, { rows: countRows }, { rows: utxos }, { rows: recent }] = await Promise.all([
     pool.query('SELECT * FROM address_balances WHERE address = $1 ORDER BY asset_name = \'RVN\' DESC, balance DESC', [address]),
-    pool.query('SELECT count(*) AS count FROM address_transactions WHERE address = $1', [address]),
+    pool.query(`
+      SELECT count(*) AS count FROM address_transactions a CROSS JOIN sync_state s
+      WHERE s.id = 'ravencoin-mainnet' AND a.address = $1 AND a.block_height <= s.best_height
+    `, [address]),
     pool.query(`
       SELECT o.txid, o.vout_index, o.value_rvn, o.asset_name, o.asset_amount, t.block_height
       FROM output_addresses a JOIN tx_outputs o USING (txid, vout_index) JOIN transactions t USING (txid)
+      LEFT JOIN transactions spent ON spent.txid = o.spent_by_txid
       CROSS JOIN sync_state s
       WHERE s.id = 'ravencoin-mainnet' AND t.block_height <= s.best_height
-        AND a.address = $1 AND o.spent_by_txid IS NULL ORDER BY t.block_height DESC LIMIT 100
+        AND a.address = $1
+        AND (o.spent_by_txid IS NULL OR spent.block_height > s.best_height)
+      ORDER BY t.block_height DESC LIMIT 100
     `, [address]),
     pool.query(`
       SELECT t.*, (s.best_height - t.block_height + 1) AS confirmations
       FROM address_transactions a JOIN transactions t USING (txid) CROSS JOIN sync_state s
-      WHERE s.id = 'ravencoin-mainnet' AND a.address = $1
+      WHERE s.id = 'ravencoin-mainnet' AND a.address = $1 AND a.block_height <= s.best_height
       ORDER BY a.block_height DESC, a.tx_index DESC LIMIT 25
     `, [address]),
   ])
@@ -394,8 +403,9 @@ export async function getIndexedAsset(pool, name) {
   const { rows } = await pool.query('SELECT * FROM assets WHERE name = $1', [decodeURIComponent(name).toUpperCase()])
   if (!rows[0]) throw Object.assign(new Error('Asset not found.'), { status: 404, code: -5 })
   const { rows: transfers } = await pool.query(`
-    SELECT a.*, t.time FROM asset_transfers a JOIN transactions t USING (txid)
-    WHERE a.asset_name = $1 ORDER BY a.block_height DESC, a.tx_index DESC LIMIT 50
+    SELECT a.*, t.time FROM asset_transfers a JOIN transactions t USING (txid) CROSS JOIN sync_state s
+    WHERE s.id = 'ravencoin-mainnet' AND a.asset_name = $1 AND a.block_height <= s.best_height
+    ORDER BY a.block_height DESC, a.tx_index DESC LIMIT 50
   `, [rows[0].name])
   return {
     ...mapAsset(rows[0]),

@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import pg from 'pg'
 import { migrate } from './db.mjs'
 import { rollbackTo } from './indexer.mjs'
-import { aggregateBlockRange, stageRawBlockBatch } from './pipeline.mjs'
-import { getIndexedAddress, getIndexedAddresses, getIndexedBlock, getIndexedNetworkStats, getIndexedTransaction } from './repository.mjs'
+import { prepareAggregationBatch, reducePreparedAggregationBatch, stageRawBlockBatch } from './pipeline.mjs'
+import { getIndexedAddress, getIndexedAddresses, getIndexedAsset, getIndexedBlock, getIndexedNetworkStats, getIndexedTransaction } from './repository.mjs'
 
 const connectionString = process.env.TEST_DATABASE_URL
 
@@ -68,12 +68,48 @@ test('indexes balances, spends, assets and reverses a reorg transactionally', { 
   let checkpoint = (await pool.query('SELECT best_height, raw_height FROM sync_state WHERE id = $1', ['ravencoin-mainnet'])).rows[0]
   assert.equal(checkpoint.best_height, -1)
   assert.equal(checkpoint.raw_height, 0)
-  await aggregateBlockRange(pool, 0, 0)
   await stageRawBlockBatch(pool, [next], genesisHash)
   checkpoint = (await pool.query('SELECT best_height, raw_height FROM sync_state WHERE id = $1', ['ravencoin-mainnet'])).rows[0]
-  assert.equal(checkpoint.best_height, 0)
+  assert.equal(checkpoint.best_height, -1)
   assert.equal(checkpoint.raw_height, 1)
-  await aggregateBlockRange(pool, 1, 1)
+
+  // Complete the later range first to prove preparation is independent and
+  // durable, while the public checkpoint and balances remain ordered.
+  await Promise.all([
+    prepareAggregationBatch(pool, 1, 1),
+    prepareAggregationBatch(pool, 0, 0),
+  ])
+  assert.equal((await pool.query("SELECT count(*) AS count FROM aggregation_batches WHERE status = 'prepared'")).rows[0].count, 2)
+  assert.equal((await pool.query('SELECT count(*) AS count FROM address_balances')).rows[0].count, 0)
+  checkpoint = (await pool.query('SELECT best_height, raw_height FROM sync_state WHERE id = $1', ['ravencoin-mainnet'])).rows[0]
+  assert.equal(checkpoint.best_height, -1)
+  await pool.query(`
+    INSERT INTO assets (name, amount, units, reissuable) VALUES ('TEST_ASSET', 1000, 0, true)
+    ON CONFLICT (name) DO NOTHING
+  `)
+  assert.equal((await getIndexedAsset(pool, 'TEST_ASSET')).transfers.length, 0)
+
+  const duplicate = await prepareAggregationBatch(pool, 0, 0)
+  assert.equal(duplicate.alreadyPrepared, true)
+  await reducePreparedAggregationBatch(pool)
+  checkpoint = (await pool.query('SELECT best_height, raw_height FROM sync_state WHERE id = $1', ['ravencoin-mainnet'])).rows[0]
+  assert.equal(checkpoint.best_height, 0)
+  const checkpointAsset = await getIndexedAsset(pool, 'TEST_ASSET')
+  assert.deepEqual(checkpointAsset.transfers.map((transfer) => transfer.blockHeight), [0])
+
+  const checkpointAddress = await getIndexedAddress(pool, addressA)
+  assert.equal(checkpointAddress.balance, 50)
+  assert.equal(checkpointAddress.transactionCount, 1)
+  assert.equal(checkpointAddress.utxos.some((output) => output.txid === genesisTx && output.outputIndex === 0), true,
+    'a spend prepared above best_height must not hide the checkpoint UTXO')
+  const futureAddress = await getIndexedAddress(pool, addressB)
+  assert.equal(futureAddress.balance, 0)
+  assert.equal(futureAddress.transactionCount, 0)
+  assert.equal(futureAddress.transactions.length, 0)
+  await assert.rejects(getIndexedTransaction(pool, nextTx), /not found/i)
+  await assert.rejects(getIndexedBlock(pool, 1), /not found/i)
+
+  await reducePreparedAggregationBatch(pool)
 
   const balances = (await pool.query('SELECT address, asset_name, balance FROM address_balances ORDER BY address, asset_name')).rows
   assert.deepEqual(balances.map((row) => [row.address, row.asset_name, row.balance]), [

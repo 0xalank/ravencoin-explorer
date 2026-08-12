@@ -47,7 +47,7 @@ test('skips completed schema DDL during concurrent service startup', async () =>
     async query(sql) {
       queries.push(sql)
       if (sql.includes('to_regclass')) return { rows: [{ relation: 'schema_migrations' }] }
-      if (sql.includes('max(version)')) return { rows: [{ version: 2 }] }
+      if (sql.includes('max(version)')) return { rows: [{ version: 3 }] }
       return { rows: [] }
     },
     release() { released = true },
