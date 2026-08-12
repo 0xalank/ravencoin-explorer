@@ -112,6 +112,15 @@ docker compose --project-name ravencoin-txindex --env-file .env.txindex \
   -f compose.txindex.yaml up -d snapshot-server
 ```
 
+For an unattended first publication, the guarded publisher waits for the
+uninterrupted builder to log `Reindexing finished`, refuses consensus/database
+errors or an exited container, runs finalization and both offline verification
+passes, then starts the loopback-only download service:
+
+```bash
+COMPOSE_ENV_FILE=.env.txindex pnpm ops:txindex:publish-when-ready
+```
+
 Run an extraction and isolated boot drill before announcing the first release:
 
 ```bash

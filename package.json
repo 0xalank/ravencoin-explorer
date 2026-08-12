@@ -23,8 +23,9 @@
     "ops:txindex:status": "bash scripts/ops/txindex-status.sh",
     "ops:txindex:finalize": "bash scripts/ops/txindex-finalize.sh",
     "ops:txindex:snapshot": "bash scripts/ops/txindex-snapshot.sh",
+    "ops:txindex:publish-when-ready": "bash scripts/ops/txindex-publish-when-ready.sh",
     "ops:txindex:verify": "bash scripts/ops/verify-txindex-snapshot.sh",
-    "ops:check": "node --check scripts/ops/reconcile-rpc.mjs && node --check scripts/ops/monitor.mjs && node --check scripts/ops/redact-database-url.mjs && bash -n scripts/ops/postgres-snapshot.sh scripts/ops/verify-postgres-snapshot.sh scripts/ops/restore-postgres-snapshot.sh scripts/ops/txindex-init.sh scripts/ops/txindex-seed.sh scripts/ops/txindex-start-reindex.sh scripts/ops/txindex-status.sh scripts/ops/txindex-finalize.sh scripts/ops/txindex-snapshot.sh scripts/ops/verify-txindex-snapshot.sh",
+    "ops:check": "node --check scripts/ops/reconcile-rpc.mjs && node --check scripts/ops/monitor.mjs && node --check scripts/ops/redact-database-url.mjs && bash -n scripts/ops/postgres-snapshot.sh scripts/ops/verify-postgres-snapshot.sh scripts/ops/restore-postgres-snapshot.sh scripts/ops/txindex-init.sh scripts/ops/txindex-seed.sh scripts/ops/txindex-start-reindex.sh scripts/ops/txindex-status.sh scripts/ops/txindex-finalize.sh scripts/ops/txindex-snapshot.sh scripts/ops/txindex-publish-when-ready.sh scripts/ops/verify-txindex-snapshot.sh",
     "test": "node --test server/*.test.mjs",
     "check": "pnpm test && pnpm build"
   },

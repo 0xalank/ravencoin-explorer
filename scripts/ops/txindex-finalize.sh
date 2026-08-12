@@ -33,20 +33,15 @@ if ! "${compose[@]}" exec -T ravend-txindex sh -c 'test -f /data/.txindex-rebuil
   echo "Refusing to finalize a node without uninterrupted rebuild evidence." >&2
   exit 1
 fi
-finalize_logs="$("${compose[@]}" logs --no-color ravend-txindex)"
-if ! grep -q 'Reindexing finished' <<<"$finalize_logs" && ! "${compose[@]}" exec -T ravend-txindex test -f /data/.txindex-reindex-complete; then
-  echo "Refusing to finalize before Core reports 'Reindexing finished'." >&2
-  exit 1
-fi
-
 chain_info="$("${compose[@]}" exec -T ravend-txindex raven-cli -datadir=/data -conf=/etc/ravencoin/raven.conf getblockchaininfo)"
 height="$(printf '%s' "$chain_info" | jq -r '.blocks')"
+headers="$(printf '%s' "$chain_info" | jq -r '.headers')"
 best_hash="$(printf '%s' "$chain_info" | jq -r '.bestblockhash')"
 reference_height="$(docker exec "$reference_container" raven-cli -datadir=/data -conf=/etc/ravencoin/raven.conf getblockcount)"
 canonical_hash="$(docker exec "$reference_container" raven-cli -datadir=/data -conf=/etc/ravencoin/raven.conf getblockhash "$height")"
 lag="$((reference_height - height))"
-[[ "$best_hash" == "$canonical_hash" && "$lag" -ge 0 && "$lag" -le "$maximum_lag" ]] || {
-  echo "Rebuilt node is not on the current canonical chain (height=$height reference=$reference_height lag=$lag)." >&2
+[[ "$height" == "$headers" && "$best_hash" == "$canonical_hash" && "$lag" -ge 0 && "$lag" -le "$maximum_lag" ]] || {
+  echo "Rebuilt node is not fully activated on the current canonical chain (height=$height headers=$headers reference=$reference_height lag=$lag)." >&2
   exit 1
 }
 
