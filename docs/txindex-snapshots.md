@@ -45,10 +45,12 @@ The seed script verifies an unpruned, contiguous block-file sequence, copies
 every closed `blk*.dat`, and omits the live final file.
 The dedicated node rebuilds block index, chainstate, asset state, undo data, and
 txindex from those local files, then downloads the small missing tail. The start
-script passes `-reindex` only until Core confirms it has persisted its internal
-reindex state, then immediately recreates the container without the explicit
-flag. Subsequent container or host restarts safely resume rather than wiping
-and restarting the databases.
+script runs one container with `-reindex` and disables its automatic restart
+policy until the rebuild finishes. This pinned Ravencoin Core version cannot
+safely resume an interrupted asset replay: if the process or host stops before
+Core logs `Reindexing finished`, discard the partial derived databases, seed a
+fresh datadir with the raw block files, and start again. Do not restart or
+recreate the builder during the one-time rebuild.
 
 Check progress and the definitive historical-transaction probe:
 

@@ -130,7 +130,8 @@ trap cleanup EXIT INT TERM
 rsync_options=(
   --archive --numeric-ids --delete --delete-excluded
   --exclude=/.cookie --exclude=/.lock --exclude=/.txindex-ready
-  --exclude=/.txindex-reindex-started --exclude=/.txindex-reindex-complete
+  --exclude=/.txindex-rebuild-active --exclude=/.txindex-reindex-started
+  --exclude=/.txindex-reindex-complete
   --exclude=/banlist.dat --exclude=/db.log --exclude='/debug.log*'
   --exclude=/fee_estimates.dat --exclude=/mempool.dat
   --exclude=/onion_private_key --exclude=/onion_v3_private_key

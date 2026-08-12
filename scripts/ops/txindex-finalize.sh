@@ -16,6 +16,10 @@ compose=(docker compose --project-name "$compose_project")
 if [[ -f "$compose_env_file" ]]; then compose+=(--env-file "$compose_env_file"); fi
 compose+=(-f "$compose_file")
 
+if ! "${compose[@]}" exec -T ravend-txindex test -f /data/.txindex-rebuild-active; then
+  echo "Refusing to finalize a node without the uninterrupted rebuild marker." >&2
+  exit 1
+fi
 finalize_logs="$("${compose[@]}" logs --no-color ravend-txindex)"
 if ! grep -q 'Reindexing finished' <<<"$finalize_logs" && ! "${compose[@]}" exec -T ravend-txindex test -f /data/.txindex-reindex-complete; then
   echo "Refusing to finalize before Core reports 'Reindexing finished'." >&2
@@ -38,7 +42,8 @@ actual_block="$(printf '%s' "$transaction" | jq -r '.blockhash // empty')"
 [[ "$actual_block" == "$expected_block" ]] || { echo "Historical txindex probe failed." >&2; exit 1; }
 
 "${compose[@]}" exec -T ravend-txindex touch /data/.txindex-reindex-complete
-env TXINDEX_REINDEX=false "${compose[@]}" up -d --force-recreate ravend-txindex
+"${compose[@]}" exec -T ravend-txindex rm /data/.txindex-rebuild-active
+env TXINDEX_REINDEX=false TXINDEX_RESTART_POLICY=unless-stopped "${compose[@]}" up -d --force-recreate ravend-txindex
 
 ready=false
 for _ in $(seq 1 "$boot_timeout"); do

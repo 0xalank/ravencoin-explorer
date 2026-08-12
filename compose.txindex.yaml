@@ -9,10 +9,15 @@ services:
         RAVEN_REPOSITORY: ${RAVEN_REPOSITORY:-https://github.com/dominant-strategies/Ravencoin-Public.git}
         RAVEN_COMMIT: ${RAVEN_COMMIT:-1ecb6598e8c14487676264b3e2ed91e4cc44c6cc}
     image: dominant-ravencoin-node:${RAVEN_IMAGE_TAG:-1ecb659}
-    restart: unless-stopped
+    restart: ${TXINDEX_RESTART_POLICY:-unless-stopped}
     stop_grace_period: 5m
     cpus: ${TXINDEX_CPUS:-16}
     mem_limit: ${TXINDEX_MEMORY_LIMIT:-40g}
+    logging:
+      driver: json-file
+      options:
+        max-size: ${TXINDEX_LOG_MAX_SIZE:-100m}
+        max-file: ${TXINDEX_LOG_MAX_FILES:-5}
     environment:
       TXINDEX_REINDEX: ${TXINDEX_REINDEX:-false}
       TXINDEX_DBCACHE: ${TXINDEX_DBCACHE:-16384}
@@ -21,7 +26,7 @@ services:
       - -ec
       - |
         set -- -datadir=/data -conf=/etc/ravencoin/raven.conf -printtoconsole -onlynet=ipv4 -dbcache=$${TXINDEX_DBCACHE:-16384}
-        if [ "$${TXINDEX_REINDEX:-false}" = "true" ] && [ ! -e /data/.txindex-reindex-started ]; then
+        if [ "$${TXINDEX_REINDEX:-false}" = "true" ]; then
           set -- "$$@" -reindex
         fi
         exec ravend "$$@"
