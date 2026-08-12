@@ -50,7 +50,8 @@ if ! jq -e '
   ($probe.amount | type) == "number" and $probe.amount >= 0 and
   ($probe.units | type) == "number" and $probe.units >= 0 and $probe.units <= 8 and $probe.units == ($probe.units | floor) and
   ($probe.reissuable == 0 or $probe.reissuable == 1) and
-  ($probe.has_ipfs == 0 or $probe.has_ipfs == 1)
+  ($probe.has_ipfs == 0 or $probe.has_ipfs == 1) and
+  ($probe.holderCount | type) == "number" and $probe.holderCount > 0 and $probe.holderCount == ($probe.holderCount | floor)
 ' "$manifest" >/dev/null; then
   echo "Manifest asset-state probe is missing or invalid." >&2
   exit 1
@@ -143,6 +144,7 @@ if [[ "$boot" == "--boot" ]]; then
   asset_probe_units="$(jq -c '.assetProbe.units' "$manifest")"
   asset_probe_reissuable="$(jq -c '.assetProbe.reissuable' "$manifest")"
   asset_probe_has_ipfs="$(jq -c '.assetProbe.has_ipfs' "$manifest")"
+  asset_probe_holder_count="$(jq -c '.assetProbe.holderCount' "$manifest")"
   asset_issuance="$(docker exec "$container_name" raven-cli -datadir=/data -conf=/etc/ravencoin/raven.conf getrawtransaction "$asset_probe_txid" true)"
   actual_asset_block="$(printf '%s' "$asset_issuance" | jq -r '.blockhash // empty')"
   [[ "$actual_asset_block" == "$asset_probe_block" ]] || { echo "Booted snapshot failed the asset issuance transaction probe." >&2; exit 1; }
@@ -161,6 +163,11 @@ if [[ "$boot" == "--boot" ]]; then
       echo "Booted snapshot failed the asset-state probe for $asset_probe_name." >&2
       exit 1
     }
+  actual_asset_holder_count="$(docker exec "$container_name" raven-cli -datadir=/data -conf=/etc/ravencoin/raven.conf listaddressesbyasset "$asset_probe_name" true)"
+  [[ "$actual_asset_holder_count" == "$asset_probe_holder_count" ]] || {
+    echo "Booted snapshot failed the assetindex holder-count probe for $asset_probe_name." >&2
+    exit 1
+  }
   echo "Boot verification passed at height $actual_height."
 fi
 

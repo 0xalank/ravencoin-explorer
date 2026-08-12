@@ -230,6 +230,11 @@ printf '%s' "$asset_data" | jq -e \
     echo "Staged asset-state probe failed for $asset_probe_name." >&2
     exit 1
   }
+asset_holder_count="$(docker exec "$verify_container" raven-cli -datadir=/data -conf=/etc/ravencoin/raven.conf listaddressesbyasset "$asset_probe_name" true)"
+printf '%s' "$asset_holder_count" | jq -e 'type == "number" and . > 0 and . == floor' >/dev/null || {
+  echo "Staged assetindex probe failed for $asset_probe_name." >&2
+  exit 1
+}
 reference_height="$(docker exec "$reference_container" raven-cli -datadir=/data -conf=/etc/ravencoin/raven.conf getblockcount)"
 canonical_hash="$(docker exec "$reference_container" raven-cli -datadir=/data -conf=/etc/ravencoin/raven.conf getblockhash "$height")"
 lag="$((reference_height - height))"
@@ -275,8 +280,8 @@ jq -n \
   --arg asset_probe_name "$asset_probe_name" --arg asset_probe_txid "$asset_probe_txid" \
   --arg asset_probe_block "$asset_probe_block" --argjson asset_probe_amount "$asset_probe_amount" \
   --argjson asset_probe_units "$asset_probe_units" --argjson asset_probe_reissuable "$asset_probe_reissuable" \
-  --argjson asset_probe_has_ipfs "$asset_probe_has_ipfs" \
-  '{format:$format,archive:$archive,sha256:$sha256,archiveBytes:$archive_bytes,datadirBytes:$datadir_bytes,createdAt:$created_at,network:"main",coreVersion:$core_version,sourceCommit:$source_commit,imageId:$image_id,height:$height,bestBlockHash:$best_block_hash,chainwork:$chainwork,txindex:true,assetindex:true,pruned:false,probe:{txid:$probe_txid,blockHash:$probe_block_hash},assetProbe:{name:$asset_probe_name,issuanceTxid:$asset_probe_txid,blockHash:$asset_probe_block,amount:$asset_probe_amount,units:$asset_probe_units,reissuable:$asset_probe_reissuable,has_ipfs:$asset_probe_has_ipfs}}' \
+  --argjson asset_probe_has_ipfs "$asset_probe_has_ipfs" --argjson asset_holder_count "$asset_holder_count" \
+  '{format:$format,archive:$archive,sha256:$sha256,archiveBytes:$archive_bytes,datadirBytes:$datadir_bytes,createdAt:$created_at,network:"main",coreVersion:$core_version,sourceCommit:$source_commit,imageId:$image_id,height:$height,bestBlockHash:$best_block_hash,chainwork:$chainwork,txindex:true,assetindex:true,pruned:false,probe:{txid:$probe_txid,blockHash:$probe_block_hash},assetProbe:{name:$asset_probe_name,issuanceTxid:$asset_probe_txid,blockHash:$asset_probe_block,amount:$asset_probe_amount,units:$asset_probe_units,reissuable:$asset_probe_reissuable,has_ipfs:$asset_probe_has_ipfs,holderCount:$asset_holder_count}}' \
   >"$release_partial/$manifest_name"
 chmod 0644 -- "$release_partial"/*
 mv -- "$release_partial" "$release_final"

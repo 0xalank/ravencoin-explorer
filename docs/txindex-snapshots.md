@@ -73,8 +73,10 @@ the txindex probe retrieves a fully spent transaction from block 1 without
 supplying its block hash. That request fails on a non-txindex node. The
 asset-state probe independently retrieves the `VOTE` issuance transaction and
 requires `getassetdata VOTE` to report amount `10000000`, units `8`,
-reissuable `1`, and `has_ipfs` `0`. Together they prove that both optional
-indexes survived the restart.
+reissuable `1`, and `has_ipfs` `0`. It also requires
+`listaddressesbyasset VOTE true` to return a positive integer, which this Core
+only supports when the optional asset index is enabled and populated. Together
+the probes prove that both optional indexes survived the restart.
 
 ## Publish a consistent snapshot
 

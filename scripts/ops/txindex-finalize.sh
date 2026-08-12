@@ -55,7 +55,7 @@ actual_block="$(printf '%s' "$transaction" | jq -r '.blockhash // empty')"
 [[ "$actual_block" == "$expected_block" ]] || { echo "Historical txindex probe failed." >&2; exit 1; }
 
 verify_asset_probe() {
-  local context="$1" issuance asset_block asset_data
+  local context="$1" issuance asset_block asset_data holder_count
   issuance="$("${compose[@]}" exec -T ravend-txindex raven-cli -datadir=/data -conf=/etc/ravencoin/raven.conf getrawtransaction "$asset_probe_txid" true)"
   asset_block="$(printf '%s' "$issuance" | jq -r '.blockhash // empty')"
   [[ "$asset_block" == "$asset_probe_block" ]] || { echo "$context asset issuance transaction is not in the expected block." >&2; return 1; }
@@ -74,6 +74,11 @@ verify_asset_probe() {
       echo "$context asset-state probe failed for $asset_probe_name." >&2
       return 1
     }
+  holder_count="$("${compose[@]}" exec -T ravend-txindex raven-cli -datadir=/data -conf=/etc/ravencoin/raven.conf listaddressesbyasset "$asset_probe_name" true)"
+  printf '%s' "$holder_count" | jq -e 'type == "number" and . > 0 and . == floor' >/dev/null || {
+    echo "$context assetindex probe failed for $asset_probe_name." >&2
+    return 1
+  }
 }
 
 verify_asset_probe "Rebuilt node"
