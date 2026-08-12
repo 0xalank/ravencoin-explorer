@@ -11,15 +11,16 @@ services:
     image: dominant-ravencoin-node:${RAVEN_IMAGE_TAG:-1ecb659}
     restart: unless-stopped
     stop_grace_period: 5m
-    cpus: ${TXINDEX_CPUS:-8}
-    mem_limit: ${TXINDEX_MEMORY_LIMIT:-24g}
+    cpus: ${TXINDEX_CPUS:-16}
+    mem_limit: ${TXINDEX_MEMORY_LIMIT:-40g}
     environment:
       TXINDEX_REINDEX: ${TXINDEX_REINDEX:-false}
+      TXINDEX_DBCACHE: ${TXINDEX_DBCACHE:-16384}
     entrypoint:
       - /bin/sh
       - -ec
       - |
-        set -- -datadir=/data -conf=/etc/ravencoin/raven.conf -printtoconsole -onlynet=ipv4
+        set -- -datadir=/data -conf=/etc/ravencoin/raven.conf -printtoconsole -onlynet=ipv4 -dbcache=$${TXINDEX_DBCACHE:-16384}
         if [ "$${TXINDEX_REINDEX:-false}" = "true" ] && [ ! -e /data/.txindex-reindex-started ]; then
           set -- "$$@" -reindex
         fi

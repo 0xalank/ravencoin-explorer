@@ -4,7 +4,7 @@ daemon=0
 prune=0
 txindex=1
 assetindex=1
-dbcache=8192
+dbcache=16384
 
 # This builder makes outbound peer connections only. RPC remains inside the
 # container and is never published by compose.txindex.yaml.
