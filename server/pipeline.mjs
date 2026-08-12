@@ -1,7 +1,18 @@
 import { atomicToDecimal, decimalToAtomic, normalizeOutput } from './indexer-utils.mjs'
 
 const STATE_ID = 'ravencoin-mainnet'
-const asJson = (rows) => JSON.stringify(rows)
+// PostgreSQL rejects a jsonb array once its decoded elements exceed 256 MiB.
+// Keep each transport payload comfortably below that hard limit. Row-count
+// chunking alone is unsafe because script/coinbase fields vary widely in size.
+const DEFAULT_JSON_CHUNK_BYTES = 64 * 1024 * 1024
+
+function jsonChunkBytes() {
+  const value = Number(process.env.INDEXER_JSON_CHUNK_BYTES ?? DEFAULT_JSON_CHUNK_BYTES)
+  if (!Number.isInteger(value) || value < 1024 * 1024 || value > 128 * 1024 * 1024) {
+    throw new Error('INDEXER_JSON_CHUNK_BYTES must be between 1048576 and 134217728.')
+  }
+  return value
+}
 
 function indexerWorkMem() {
   const value = (process.env.INDEXER_WORK_MEM || '512MB').trim()
@@ -14,8 +25,27 @@ async function configureRebuildableTransaction(client) {
   await client.query("SELECT set_config('work_mem', $1, true)", [indexerWorkMem()])
 }
 
+export function* chunkJsonRows(rows, limit = jsonChunkBytes()) {
+  let chunk = []
+  let bytes = 2 // JSON array brackets
+  for (const row of rows) {
+    const json = JSON.stringify(row)
+    const rowBytes = Buffer.byteLength(json)
+    if (rowBytes + 2 > limit) throw new Error(`A single raw index row exceeds INDEXER_JSON_CHUNK_BYTES (${rowBytes} bytes).`)
+    const separatorBytes = chunk.length ? 1 : 0
+    if (chunk.length && bytes + separatorBytes + rowBytes > limit) {
+      yield `[${chunk.join(',')}]`
+      chunk = []
+      bytes = 2
+    }
+    chunk.push(json)
+    bytes += (chunk.length > 1 ? 1 : 0) + rowBytes
+  }
+  if (chunk.length) yield `[${chunk.join(',')}]`
+}
+
 async function insertJson(client, rows, sql) {
-  if (rows.length) await client.query(sql, [asJson(rows)])
+  for (const json of chunkJsonRows(rows)) await client.query(sql, [json])
 }
 
 function collectRawRows(blocks) {
