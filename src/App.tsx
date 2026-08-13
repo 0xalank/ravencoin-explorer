@@ -13,6 +13,7 @@ import { useApi } from './lib/api'
 import { useI18n } from './lib/i18n'
 import { Link, usePath } from './lib/router'
 import { communityLinks, marketVenues, type CommunityIcon } from './site-data'
+import { ReconciliationPage } from './ReconciliationPage'
 import type { AddressData, AddressRankings, Asset, Block, NetworkStats, StatsHistoryPoint, Status, Transaction } from './types'
 
 function Section({ title, action, children, className = '' }: { title: string; action?: ReactNode; children: ReactNode; className?: string }) {
@@ -378,6 +379,7 @@ function Route({ path, status }: { path: string; status: Status | null }) {
   if (path === '/assets') return <AssetsPage />
   if (path === '/stats') return <StatsPage status={status} />
   if (path === '/markets') return <MarketsPage />
+  if (path === '/fork-data' || path === '/reversed-transactions') return <ReconciliationPage />
   if (path === '/community') return <CommunityPage />
   if (path === '/about') return <AboutPage />
   if (path.startsWith('/block/')) return <BlockPage id={decodeURIComponent(path.slice(7))} />

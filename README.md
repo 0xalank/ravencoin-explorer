@@ -137,6 +137,16 @@ All public endpoints are read-only and rate-limited:
 | `GET /api/assets` | Searchable asset directory |
 | `GET /api/asset/:name` | Asset metadata and recent transfers |
 | `GET /api/search?q=...` | Indexed search classification |
+| `GET /api/reversals` | Versioned fork-reconciliation search by txid, input, output, next-hop, status, or reason |
+| `GET /api/reversals.csv` | Download all matches for the same exact reconciliation filters |
+
+## Fork reconciliation data
+
+`/fork-data` publishes the source reversal list alongside normalized canonical inputs, outputs, and bounded direct-spend paths. Every artifact has a SHA-256 sidecar and the API verifies the checked-in manifest before it serves results. The source file remains byte-for-byte unchanged so its public digest is stable.
+
+Exchange workflows can filter exact `from` (input), `to` (affected output/deposit), and `onward` (output of the transaction that directly spent an affected canonical output) addresses together. Exact input/vout values and onward paths are available for the 2,688 transactions independently confirmed on the canonical chain. Fork-only rows retain transaction-level output-address candidates because the canonical index cannot reconstruct their raw inputs or per-vout values.
+
+All value fields must be interpreted by their documented basis: `out_value_rvn` is a gross whole-transaction output total that includes change and can count the same coins again through descendants. A multi-input consolidation path proves an on-chain graph edge, not one-to-one value attribution or address ownership. The dataset reports technical replay/confirmation status and does not assert that a malicious double spend occurred.
 
 Successful responses include `meta.source`: `indexed`, `live`, or `demo`. Production should use `EXPLORER_DATA_SOURCE=postgres` and `EXPLORER_DEMO_MODE=false` so infrastructure failures are never replaced with synthetic data.
 

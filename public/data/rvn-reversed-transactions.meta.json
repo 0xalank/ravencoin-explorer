@@ -1,0 +1,91 @@
+{
+  "datasetId": "ravencoin-2026-fork-reversal-v1",
+  "version": 1,
+  "publishedAt": "2026-08-13T16:00:00Z",
+  "network": "Ravencoin mainnet",
+  "sourceRepository": "https://github.com/0xalank/ravencoin-explorer",
+  "transactionCount": 4664,
+  "forkHeightRange": {
+    "minimum": 4487895,
+    "maximum": 4491328
+  },
+  "canonicalConfirmationRange": {
+    "minimum": 4491549,
+    "maximum": 4492327,
+    "minimumBlockHash": "000000000002041cce69e5c2240e262dfbe6eb9e7ef1c17eca514098717a3c2b",
+    "maximumBlockHash": "00000000000208ce01ba37c1637fa3869e21d21e9c1ad602c49ec99ff7e1bb15"
+  },
+  "verifiedAgainst": {
+    "height": 4492405,
+    "blockHash": "00000000000177bef73855acb0efb754443886e04ad06abfa60b603be5dca151",
+    "verifiedAt": "2026-08-13T15:41:36Z"
+  },
+  "statusCounts": {
+    "CONFIRMED": 2688,
+    "NOT_REPLAYABLE": 1976
+  },
+  "reasonCounts": {
+    "orphaned-coinbase-input": 314,
+    "input-already-spent-elsewhere": 22,
+    "depends-on-unreplayable-parent": 1640
+  },
+  "grossTransactionOutputRvn": {
+    "all": "89330418.14906834",
+    "confirmed": "62011473.51099455",
+    "notReplayable": "27318944.63807379",
+    "orphanedCoinbaseInput": "4317158.76837261",
+    "inputAlreadySpentElsewhere": "68257.34098295",
+    "dependsOnUnreplayableParent": "22933528.52871823"
+  },
+  "addressCoverage": {
+    "outputAddressAssociations": 36115,
+    "uniqueOutputAddresses": 6069,
+    "canonicalInputs": 7141,
+    "canonicalOutputs": 5357,
+    "canonicalDirectSpendRows": 5558
+  },
+  "files": {
+    "transactions": {
+      "url": "/data/rvn-reversed-transactions.csv",
+      "sha256": "1e5bdf960d5f071c3097a4621db1745c824d1e6b5fa555d54707bf894f32dca2",
+      "bytes": 1856057,
+      "rows": 4664
+    },
+    "canonicalInputs": {
+      "url": "/data/rvn-reversed-transactions-inputs.csv",
+      "sha256": "7e402fe0094f3e6e1b1a6e79e443de82c7d19ff805dd408456e58a2e0f590890",
+      "bytes": 1323529,
+      "rows": 7141
+    },
+    "canonicalOutputs": {
+      "url": "/data/rvn-reversed-transactions-outputs.csv",
+      "sha256": "1db0d472bdcc4d6688115c71ebf68845506f804b45b3ba766259cada71b420e4",
+      "bytes": 600564,
+      "rows": 5357
+    },
+    "canonicalDirectSpends": {
+      "url": "/data/rvn-reversed-transactions-spends.csv",
+      "sha256": "a0fb5156011e2be76fac1dff7553b53d72e9eb007ca59cc523c08632bb2fb179",
+      "bytes": 1304172,
+      "rows": 5558
+    }
+  },
+  "verification": {
+    "canonicalTransactions": "All 2,688 confirmed rows were matched exactly to the canonical explorer index by transaction ID, height, input count, output count, total output value, and output-address set.",
+    "canonicalAssets": "The 2,688 canonical transactions contain zero indexed asset inputs, outputs, or transfers.",
+    "forkOnlyAssets": "The asset field is empty for every source row. The 1,976 fork-only transactions have not yet been independently script-validated because the raw fork transactions are not present in the canonical index."
+  },
+  "valueBasis": {
+    "out_value_rvn": "gross-transaction-output",
+    "canonicalOutputValue": "exact-vout-value",
+    "matchedCanonicalOutput": "sum-of-unique-matching-vouts",
+    "matchedDirectSpendOutput": "sum-of-unique-matching-child-vouts"
+  },
+  "caveats": [
+    "Transaction output totals are gross whole-transaction totals. They include change and can count the same coins again through descendant transactions; they are not exchange exposure, loss, deposit value, or unique RVN.",
+    "Input and output addresses identify decoded script participation, not ownership or identity. A source-to-destination match means both addresses occur in the same transaction and does not assign a specific input to a specific output.",
+    "Exact input and per-output data is independently available only for the 2,688 transactions confirmed on the canonical chain. Fork-only rows support output-address candidate matching from the source summary, but not exact per-output values or input-address filtering.",
+    "An input conflict is a technical UTXO conflict and does not by itself establish that a malicious double spend occurred.",
+    "Direct-spend paths prove an on-chain graph edge from an affected canonical output into the transaction that spent it. Multi-input consolidation does not establish one-to-one value attribution or address ownership."
+  ]
+}

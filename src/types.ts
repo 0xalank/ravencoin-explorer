@@ -198,3 +198,88 @@ export interface AssetTransfer {
   fromAddresses: string[]
   toAddresses: string[]
 }
+
+export interface ReversalInput {
+  txid: string
+  vinIndex: number
+  prevTxid: string
+  prevVout: number
+  inputAddress: string | null
+  valueRvn: string | null
+  assetName: string | null
+  assetAmount: string | null
+}
+
+export interface ReversalOutput {
+  txid: string
+  voutIndex: number
+  outputAddress: string | null
+  valueRvn: string
+  scriptType: string | null
+  assetName: string | null
+  assetAmount: string | null
+  assetType: string | null
+}
+
+export interface ReversalSpend {
+  originTxid: string
+  originVoutIndex: number
+  originOutputAddress: string | null
+  originValueRvn: string
+  spentByTxid: string
+  spentByVin: number
+  spentHeight: number
+  spentVoutIndex: number
+  spentOutputAddress: string | null
+  spentValueRvn: string
+  spentScriptType: string | null
+}
+
+export interface ReversalTransaction {
+  txid: string
+  exploitChainHeight: number
+  replayStatus: 'CONFIRMED' | 'NOT_REPLAYABLE'
+  notReplayableReason: string | null
+  confirmedHeight: number | null
+  totalOutputRvn: string
+  nIn: number
+  nOut: number
+  fromForgedBlock: boolean
+  asset: string | null
+  outputAddresses: string[]
+  evidenceCoverage: 'canonical-exact' | 'fork-summary-only'
+  inputAddresses: string[] | null
+  exactOutputAddresses: string[] | null
+  inputs: ReversalInput[] | null
+  outputs: ReversalOutput[] | null
+  matchedOutputs: ReversalOutput[] | null
+  matchedOutputRvn: string | null
+  onwardSpends: ReversalSpend[] | null
+  matchedOnwardOutputRvn: string | null
+}
+
+export interface ReversalSearchResult {
+  items: ReversalTransaction[]
+  total: number
+  limit: number
+  offset: number
+  hasMore: boolean
+  filters: { q: string | null; from: string | null; to: string | null; onward: string | null; status: string | null; reason: string | null }
+  availableFilters: { statuses: string[]; reasons: string[] }
+  coverage: { canonicalExact: string; forkSummaryOnly: string; addressPair: string; onward: string; grossValue: string }
+  dataset: {
+    datasetId?: string
+    version?: number
+    publishedAt?: string
+    transactionCount: number
+    sha256: string
+    statusCounts: Record<string, number>
+    reasonCounts: Record<string, number>
+    spendsSha256?: string
+    onwardPathCount?: number
+    onwardOriginOutputCount?: number
+    onwardSpendingTransactionCount?: number
+    grossTransactionOutputRvn?: { all: string; confirmed: string; notReplayable: string }
+    verifiedAgainst?: { height: number; blockHash: string; verifiedAt: string }
+  }
+}

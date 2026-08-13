@@ -2,6 +2,23 @@
 
 These commands are separate from the API/indexer. Reconciliation and monitoring are read-only. Snapshot restore is guarded: it requires explicit confirmation, rejects the active Compose database, and requires an empty target.
 
+## Fork reconciliation artifacts
+
+The public incident artifacts live in `public/data` and are copied into the production `dist/data` directory by Vite. Before a release, run `pnpm check`, compare each CSV to its checked-in `.sha256` sidecar, and load `/api/reversals` once; the loader rejects mismatched manifest digests, malformed rows, invalid Ravencoin Base58Check addresses, inconsistent counts/values, or broken direct-spend evidence.
+
+Canonical input/output and direct-spend companions are reproducible with the bounded SQL under `scripts/ops`. Populate `/tmp/rvn-confirmed-txids.txt` with the 2,688 confirmed txids before running them in PostgreSQL. The queries use primary-key-leading txid lookups and do not scan the full address-activity ledger. Keep each published dataset version immutable; update its manifest, checksums, verification height/hash, and caveats together.
+
+Production smoke checks must cover:
+
+```bash
+curl -fsS https://rvn.quai.network/api/reversals?limit=1
+curl -fsSI https://rvn.quai.network/data/rvn-reversed-transactions.csv
+curl -fsS -H 'Range: bytes=0-127' https://rvn.quai.network/data/rvn-reversed-transactions.csv
+curl -fsS 'https://rvn.quai.network/api/reversals.csv?status=CONFIRMED' -o /tmp/rvn-confirmed-reconciliation.csv
+```
+
+The direct-spend export is intentionally one hop. Do not replace it with an unbounded recursive query on a public request path. Regenerate a deeper graph offline, cap depth/nodes, version it separately, and retain the multi-input attribution warning.
+
 ## RPC reconciliation
 
 After the processed tip crosses Ravencoin asset activation at block `435456`, run:

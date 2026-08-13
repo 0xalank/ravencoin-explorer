@@ -1,0 +1,3 @@
+public/data/*.csv -text
+public/data/*.sha256 text eol=lf
+public/data/*.json text eol=lf

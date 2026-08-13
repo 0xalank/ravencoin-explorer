@@ -40,6 +40,7 @@ import {
   getIndexedNetworkStats,
   searchIndexed,
 } from './repository.mjs'
+import { createReversalDataService } from './reversal-data.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const projectRoot = path.resolve(__dirname, '..')
@@ -71,6 +72,10 @@ export function createApp(options = {}) {
   const configuredMode = options.demoMode ?? process.env.EXPLORER_DEMO_MODE ?? 'auto'
   const mode = String(configuredMode).toLowerCase()
   const source = useDatabase ? 'indexed' : 'live'
+  const reversalData = createReversalDataService({
+    dataDir: options.reversalDataDir,
+    projectRoot,
+  })
   const cache = new Map()
   const rateWindows = new Map()
 
@@ -130,6 +135,28 @@ export function createApp(options = {}) {
       }
     } catch (error) { next(error) }
   }
+
+  app.get('/api/reversals.csv', async (request, response, next) => {
+    try {
+      const download = await reversalData.download(request.query)
+      response.set({
+        'Cache-Control': 'public, max-age=60',
+        'Content-Disposition': 'attachment; filename="rvn-reversal-reconciliation.csv"',
+        'Content-Type': 'text/csv; charset=utf-8',
+        'X-Dataset-SHA256': download.sha256,
+        'X-Result-Count': String(download.count),
+      })
+      response.send(download.body)
+    } catch (error) { next(error) }
+  })
+
+  app.get('/api/reversals', async (request, response, next) => {
+    try {
+      const data = await reversalData.search(request.query)
+      response.set('Cache-Control', 'public, max-age=60')
+      response.json(envelope(data, 'incident-dataset', { datasetSha256: data.dataset.sha256 }))
+    } catch (error) { next(error) }
+  })
 
   app.get('/api/health', async (_request, response) => {
     try {
@@ -246,7 +273,18 @@ export function createApp(options = {}) {
   }))
 
   if (process.env.NODE_ENV !== 'development') {
-    app.use(express.static(path.join(projectRoot, 'dist'), { maxAge: '1h' }))
+    app.use(express.static(path.join(projectRoot, 'dist'), {
+      maxAge: '1h',
+      setHeaders(response, filePath) {
+        if (filePath.includes(`${path.sep}data${path.sep}`)) {
+          response.set({
+            'Cache-Control': 'public, max-age=300',
+            'Content-Disposition': `attachment; filename="${path.basename(filePath)}"`,
+            'X-Content-Type-Options': 'nosniff',
+          })
+        }
+      },
+    }))
     app.get(/.*/, (_, response) => response.sendFile(path.join(projectRoot, 'dist', 'index.html')))
   }
 

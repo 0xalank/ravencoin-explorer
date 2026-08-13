@@ -60,7 +60,7 @@ export function Header({ meta }: { meta: ApiMeta | null }) {
   const path = window.location.pathname
   const nav = [
     ['/', 'nav.home'], ['/blocks', 'nav.blocks'], ['/addresses', 'nav.addresses'], ['/assets', 'nav.assets'], ['/stats', 'nav.stats'],
-    ['/markets', 'nav.markets'], ['/community', 'nav.community'], ['/about', 'nav.about'],
+    ['/markets', 'nav.markets'], ['/fork-data', 'nav.data'], ['/community', 'nav.community'], ['/about', 'nav.about'],
   ]
   return <header className="site-header">
     <div className="shell header__inner">
@@ -159,7 +159,7 @@ export function Footer() {
   const { t } = useI18n()
   return <footer className="footer"><div className="shell footer__grid">
     <div><RavenMark /><p>{t('footer.disclaimer')}</p></div>
-      <div className="footer__meta"><span>{t('footer.readOnly')}</span><span><a href="https://soap.qu.ai" target="_blank" rel="noreferrer">SOAP · Quai merge mining</a></span><span>{t('footer.built')} <a href="https://dominantstrategies.io" target="_blank" rel="noreferrer">Dominant Strategies</a></span><span>© {new Date().getFullYear()} Ravencoin Community Explorer</span></div>
+    <div className="footer__meta"><span>{t('footer.readOnly')}</span><span><Link href="/fork-data">{t('nav.data')}</Link></span><span><a href="https://soap.qu.ai" target="_blank" rel="noreferrer">SOAP · Quai merge mining</a></span><span>{t('footer.built')} <a href="https://dominantstrategies.io" target="_blank" rel="noreferrer">Dominant Strategies</a></span><span>© {new Date().getFullYear()} Ravencoin Community Explorer</span></div>
   </div></footer>
 }
 
